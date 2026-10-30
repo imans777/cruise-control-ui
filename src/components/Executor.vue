@@ -4,13 +4,9 @@
     <div class="alert alert-info" v-if='!hideHelperURL'>
       <b>URL ({{group}}, {{cluster}}):</b> <a target=_blank :href='url'>{{ url }}</a>
     </div>
-    <div v-if='!loading'>
-      <div class="alert alert-primary text-right">
-        <button class="btn btn-primary" @click='getState()'>Refresh Executor State</button>
-        <button :class="['btn', autoRefresh ? 'btn-success' : 'btn-outline-secondary']" @click='toggleAutoRefresh()'>
-          Auto-Refresh {{ autoRefresh ? 'ON (30s)' : 'OFF' }}
-        </button>
-      </div>
+    <div class="alert alert-primary text-right">
+      <button class="btn btn-primary" :disabled='loading' @click='getState()'>Refresh Executor State</button>
+      <auto-refresh v-model='autoRefreshMs' class="ml-1" />
     </div>
     <div v-if='error'>
       <exception :exception='errorData'></exception>
@@ -22,35 +18,30 @@
       <div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div> Loading ...</div>
     </div>
     <div v-else>
-      <div class="card-deck mb-3">
-        <div class="card text-center">
-          <div class="card-header">Executor</div>
-          <div class="card-body">
-            <p class="card-text">
-            <span :class="['badge', ExecutorState.state && ExecutorState.state.match(/STOP|ERROR/) ? 'badge-danger': 'badge-success']">{{ ExecutorState.state }}</span>
-            </p>
+      <!-- Executor: the state; what triggered the ongoing execution (task ids and reason) behind one toggle -->
+      <div class="card mb-3">
+        <div class="card-header">Executor</div>
+        <div class="card-body py-2">
+          <div class="text-center">
+            <span :class="['badge', stateBadgeClass]">{{ ExecutorState.state }}</span>
+            <button v-if="hasTriggeredTaskInfo" type="button" class="btn btn-sm btn-outline-secondary ml-2 py-0" @click="showTriggeredTaskInfo = !showTriggeredTaskInfo">
+              {{ showTriggeredTaskInfo ? '▼' : '▶' }} Triggered Task
+            </button>
           </div>
-        </div>
-      </div>
-
-      <!-- Triggered Task Info (shown for all in-progress/stopping states) -->
-      <div v-if='isInProgressState' class="card mb-3">
-        <div class="card-header" style="cursor:pointer" @click="showTriggeredTaskInfo = !showTriggeredTaskInfo">
-          {{ showTriggeredTaskInfo ? '▼' : '▶' }} Triggered Task Info
-        </div>
-        <div class="card-body" v-show="showTriggeredTaskInfo">
-          <table class="table table-sm table-bordered mb-0">
+          <p class="card-text small text-muted mb-0 text-center" v-if="ExecutorState.recentlyRemovedBrokers && ExecutorState.recentlyRemovedBrokers.length">Recently removed brokers: {{ ExecutorState.recentlyRemovedBrokers }}</p>
+          <p class="card-text small text-muted mb-0 text-center" v-if="ExecutorState.recentlyDemotedBrokers && ExecutorState.recentlyDemotedBrokers.length">Recently demoted brokers: {{ ExecutorState.recentlyDemotedBrokers }}</p>
+          <table v-if="hasTriggeredTaskInfo && showTriggeredTaskInfo" class="table table-sm table-bordered mb-0 mt-2 triggered-task">
             <tbody>
               <tr v-if="ExecutorState.triggeredUserTaskId">
-                <td><strong>User Task ID</strong></td>
-                <td>{{ ExecutorState.triggeredUserTaskId }}</td>
+                <th>User Task ID</th>
+                <td><code>{{ ExecutorState.triggeredUserTaskId }}</code></td>
               </tr>
               <tr v-if="ExecutorState.triggeredSelfHealingTaskId">
-                <td><strong>Self-Healing Task ID</strong></td>
-                <td>{{ ExecutorState.triggeredSelfHealingTaskId }}</td>
+                <th>Self-Healing Task ID</th>
+                <td><code>{{ ExecutorState.triggeredSelfHealingTaskId }}</code></td>
               </tr>
               <tr v-if="ExecutorState.triggeredTaskReason">
-                <td><strong>Reason</strong></td>
+                <th>Reason</th>
                 <td>
                   <div v-if="parsedTaskReason.prefix">{{ parsedTaskReason.prefix }}</div>
                   <table v-if="parsedTaskReason.entries.length" class="table table-sm table-bordered mb-0 mt-1">
@@ -68,6 +59,12 @@
           </table>
         </div>
       </div>
+
+      <recovery-card v-if="ExecutorState.recovery" :recovery="ExecutorState.recovery" />
+
+      <!-- Throttles and concurrency in force, and live controls (POST admin); CC does not apply them while recovering an
+           interrupted execution -->
+      <execution-controls v-if='isInProgressState && !isRecoveringState' :state="ExecutorState" @changed="getState()" />
 
       <!-- Main execution card (shown for all in-progress/stopping states) -->
       <div v-if='isInProgressState' class="card">
@@ -95,17 +92,29 @@
             {{ ExecutorState.state | camelCase }} &mdash; preparing execution plan...
           </div>
 
+          <!-- ===================== RECOVERING SECTION ===================== -->
+          <div v-if="isRecoveringState" class="alert alert-warning">
+            <div class="spinner-border spinner-border-sm text-warning mr-2" role="status"></div>
+            <b>Recovering an execution interrupted by a Cruise Control restart.</b>
+            Its in-flight movements and throttles are being cleaned up (or the execution resumed), see the recovery card above.
+            New executions are refused meanwhile; "Stop Proposal Execution" ends the cleanup.
+          </div>
+
           <!-- ===================== INTER-BROKER SECTION ===================== -->
           <div v-if="isInterBrokerState || isLeaderMovementState || isStoppingState">
             <h4 class="mt-2 mb-3">Inter-Broker Replica Movement Progress</h4>
             <!-- Data progress bar -->
             <div v-if='ExecutorState.totalDataToMove' class="mb-2">
-              <small class="text-muted font-weight-bold">Data Movement ({{ ExecutorState.finishedDataMovement | formatUnits }} / {{ ExecutorState.totalDataToMove | formatUnits }})</small>
+              <small class="text-muted font-weight-bold">Data Movement ({{ ExecutorState.finishedDataMovement | formatUnits }}<template v-if="interProgress.tracked"> + {{ ExecutorState.inProgressMovedData | formatUnits }} in flight</template> / {{ ExecutorState.totalDataToMove | formatUnits }})</small>
               <div class="progress" style="height:28px;font-size:14px">
-                <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" :style="'width:' + ExecutorState.finishedDataMovement / ExecutorState.totalDataToMove * 100 + '%'">
-                  {{ ExecutorState.totalDataToMove ? (ExecutorState.finishedDataMovement / ExecutorState.totalDataToMove * 100).toFixed(1) + '%' : '0%' }}
+                <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" :style="'width:' + interProgress.finishedPct + '%'">
+                  {{ interProgress.finishedPct.toFixed(1) + '%' }}
+                </div>
+                <div v-if="interProgress.tracked" class="progress-bar progress-bar-striped progress-bar-animated bg-info" :style="'width:' + interProgress.inFlightPct + '%'" title="Moved by the movements in progress">
+                  {{ interProgress.inFlightPct >= 5 ? interProgress.inFlightPct.toFixed(1) + '%' : '' }}
                 </div>
               </div>
+              <movement-rate v-if="interProgress.tracked" :rate="ExecutorState.inProgressDataMovementRate" :eta="ExecutorState.estimatedRemainingTimeMs" />
             </div>
             <!-- Partition progress bar -->
             <div v-if='ExecutorState.numTotalPartitionMovements' class="mb-3">
@@ -130,8 +139,8 @@
                   <td><strong>Data</strong></td>
                   <td>{{ ExecutorState.totalDataToMove | formatUnits }}</td>
                   <td>{{ ExecutorState.finishedDataMovement | formatUnits }}</td>
-                  <td>-</td>
-                  <td>{{ ExecutorState.totalDataToMove - ExecutorState.finishedDataMovement | formatUnits }}</td>
+                  <td>{{ interProgress.tracked ? $options.filters.formatUnits(ExecutorState.inProgressMovedData) : '-' }}</td>
+                  <td>{{ interProgress.remaining | formatUnits }}</td>
                 </tr>
                 <tr>
                   <td><strong>Partitions</strong></td>
@@ -149,13 +158,10 @@
                 </tr>
               </tbody>
             </table>
-            <!-- Concurrency & abort stats -->
+            <!-- Abort stats (the concurrency is in the controls card) -->
             <table class="table table-bordered mb-3">
               <thead class="thead-light">
                 <tr>
-                  <th v-if="ExecutorState.maximumConcurrentPartitionMovementsPerBroker != null">Max Concurrency/Broker</th>
-                  <th v-if="ExecutorState.minimumConcurrentPartitionMovementsPerBroker != null">Min Concurrency/Broker</th>
-                  <th v-if="ExecutorState.averageConcurrentPartitionMovementsPerBroker != null">Avg Concurrency/Broker</th>
                   <th>Aborting</th>
                   <th>Aborted</th>
                   <th>Dead</th>
@@ -163,9 +169,6 @@
               </thead>
               <tbody>
                 <tr>
-                  <td v-if="ExecutorState.maximumConcurrentPartitionMovementsPerBroker != null">{{ ExecutorState.maximumConcurrentPartitionMovementsPerBroker }}</td>
-                  <td v-if="ExecutorState.minimumConcurrentPartitionMovementsPerBroker != null">{{ ExecutorState.minimumConcurrentPartitionMovementsPerBroker }}</td>
-                  <td v-if="ExecutorState.averageConcurrentPartitionMovementsPerBroker != null">{{ ExecutorState.averageConcurrentPartitionMovementsPerBroker | formatDecimal }}</td>
                   <td>{{ ExecutorState.abortingPartitions }}</td>
                   <td>{{ ExecutorState.abortedPartitions }}</td>
                   <td>{{ ExecutorState.deadPartitions }}</td>
@@ -200,12 +203,16 @@
             <div v-if="isIntraBrokerState">
               <!-- Data progress bar -->
               <div v-if='ExecutorState.totalIntraBrokerDataToMove' class="mb-2">
-                <small class="text-muted font-weight-bold">Data Movement ({{ ExecutorState.finishedIntraBrokerDataMovement | formatUnits }} / {{ ExecutorState.totalIntraBrokerDataToMove | formatUnits }})</small>
+                <small class="text-muted font-weight-bold">Data Movement ({{ ExecutorState.finishedIntraBrokerDataMovement | formatUnits }}<template v-if="intraProgress.tracked"> + {{ ExecutorState.inProgressIntraBrokerMovedData | formatUnits }} in flight</template> / {{ ExecutorState.totalIntraBrokerDataToMove | formatUnits }})</small>
                 <div class="progress" style="height:28px;font-size:14px">
-                  <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" :style="'width:' + ExecutorState.finishedIntraBrokerDataMovement / ExecutorState.totalIntraBrokerDataToMove * 100 + '%'">
-                    {{ ExecutorState.totalIntraBrokerDataToMove ? (ExecutorState.finishedIntraBrokerDataMovement / ExecutorState.totalIntraBrokerDataToMove * 100).toFixed(1) + '%' : '0%' }}
+                  <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" :style="'width:' + intraProgress.finishedPct + '%'">
+                    {{ intraProgress.finishedPct.toFixed(1) + '%' }}
+                  </div>
+                  <div v-if="intraProgress.tracked" class="progress-bar progress-bar-striped progress-bar-animated bg-info" :style="'width:' + intraProgress.inFlightPct + '%'" title="Moved by the movements in progress">
+                    {{ intraProgress.inFlightPct >= 5 ? intraProgress.inFlightPct.toFixed(1) + '%' : '' }}
                   </div>
                 </div>
+                <movement-rate v-if="intraProgress.tracked" :rate="ExecutorState.inProgressIntraBrokerDataMovementRate" :eta="ExecutorState.estimatedIntraBrokerRemainingTimeMs" />
               </div>
               <!-- Partition progress bar -->
               <div v-if='ExecutorState.numTotalIntraBrokerPartitionMovements' class="mb-3">
@@ -232,7 +239,7 @@
                     <td>{{ ExecutorState.totalIntraBrokerDataToMove | formatUnits }}</td>
                     <td>{{ ExecutorState.finishedIntraBrokerDataMovement | formatUnits }}</td>
                     <td>-</td>
-                    <td>-</td>
+                    <td>{{ intraProgress.tracked ? $options.filters.formatUnits(ExecutorState.inProgressIntraBrokerMovedData) : '-' }}</td>
                     <td>-</td>
                   </tr>
                   <tr>
@@ -242,23 +249,6 @@
                     <td>{{ ExecutorState.numPendingIntraBrokerPartitionMovements | formatNumber }}</td>
                     <td>{{ ExecutorState.numInProgressIntraBrokerPartitionMovements | formatNumber }}</td>
                     <td>{{ ExecutorState.numAbortingIntraBrokerPartitionMovements | formatNumber }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <!-- Concurrency stats -->
-              <table v-if="ExecutorState.maximumConcurrentIntraBrokerPartitionMovementsPerBroker != null" class="table table-bordered mb-3">
-                <thead class="thead-light">
-                  <tr>
-                    <th>Max Concurrency/Broker</th>
-                    <th>Min Concurrency/Broker</th>
-                    <th>Avg Concurrency/Broker</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>{{ ExecutorState.maximumConcurrentIntraBrokerPartitionMovementsPerBroker }}</td>
-                    <td>{{ ExecutorState.minimumConcurrentIntraBrokerPartitionMovementsPerBroker }}</td>
-                    <td>{{ ExecutorState.averageConcurrentIntraBrokerPartitionMovementsPerBroker | formatDecimal }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -358,7 +348,14 @@
 <script>
 import InterBrokerMovementTable from '@/components/InterBrokerMovementTable'
 import IntraBrokerMovementTable from '@/components/IntraBrokerMovementTable'
-import { AUTO_REFRESH_INTERVAL, ASYNC_RETRY_DELAY, ARGS_RETRY_MAX, ARGS_RETRY_DELAY } from '@/constants'
+import ExecutionControls from '@/components/ExecutionControls'
+import RecoveryCard from '@/components/RecoveryCard'
+import MovementRate from '@/components/MovementRate'
+import { EXECUTION_STATES } from '@/ccOptions'
+import parseTaskReason from '@/taskReason'
+import AutoRefresh from '@/components/AutoRefresh'
+import { autoRefreshMixin } from '@/autoRefresh'
+import { ASYNC_RETRY_DELAY, ARGS_RETRY_MAX, ARGS_RETRY_DELAY } from '@/constants'
 import fetchCC from '@/fetchCC'
 
 const DEFAULT_EXECUTOR_STATE = {
@@ -412,21 +409,55 @@ const DEFAULT_EXECUTOR_STATE = {
   // Intra-broker stopping fields
   numCancelledIntraBrokerPartitionMovements: 0,
   cancelledIntraBrokerPartitionMovement: [],
+  // In-flight data movement progress (absent unless partition.movement.progress.tracking.enabled; rate and ETA are
+  // absent until the progress has been observed twice)
+  inProgressMovedData: null,
+  inProgressDataMovementRate: null,
+  estimatedRemainingTimeMs: null,
+  inProgressIntraBrokerMovedData: null,
+  inProgressIntraBrokerDataMovementRate: null,
+  estimatedIntraBrokerRemainingTimeMs: null,
+  // Throttles in force for the ongoing execution (absent when not throttled)
+  ongoingReplicationThrottle: null,
+  ongoingLogDirThrottleByBroker: null,
+  // The latest execution interrupted by a Cruise Control restart (until the next execution starts)
+  recovery: null,
+  recentlyDemotedBrokers: null,
+  recentlyRemovedBrokers: null,
   // Triggered task info
   triggeredUserTaskId: null,
   triggeredSelfHealingTaskId: null,
   triggeredTaskReason: null
 }
 
+function progress (total, finished, inFlight) {
+  total = Number(total) || 0
+  finished = Number(finished) || 0
+  const tracked = inFlight !== null && inFlight !== undefined
+  inFlight = tracked ? Number(inFlight) : 0
+  const pct = (v) => total > 0 ? Math.min(100, v / total * 100) : 0
+  return {
+    tracked,
+    finishedPct: pct(finished),
+    inFlightPct: Math.min(pct(inFlight), 100 - pct(finished)),
+    remaining: Math.max(0, total - finished - inFlight)
+  }
+}
+
 export default {
   name: 'Executor',
+  mixins: [autoRefreshMixin],
   props: {
     group: String,
     cluster: String
   },
   components: {
     InterBrokerMovementTable,
-    IntraBrokerMovementTable
+    IntraBrokerMovementTable,
+    ExecutionControls,
+    RecoveryCard,
+    MovementRate,
+    AutoRefresh
   },
   data () {
     return {
@@ -439,8 +470,6 @@ export default {
       showTriggeredTaskInfo: false,
       showInterBrokerDetails: false,
       showIntraBrokerDetails: false,
-      autoRefresh: true,
-      autoRefreshInterval: null,
       argsRetryTimer: null,
       asyncRetryTimer: null,
       errStopProposalExecution: false, // true when stop proposal execution is success
@@ -455,9 +484,6 @@ export default {
   beforeDestroy () {
     if (this.argsRetryTimer) {
       clearTimeout(this.argsRetryTimer)
-    }
-    if (this.autoRefreshInterval) {
-      clearInterval(this.autoRefreshInterval)
     }
     if (this.asyncRetryTimer) {
       clearTimeout(this.asyncRetryTimer)
@@ -495,54 +521,34 @@ export default {
     },
     isInitializingState () {
       const s = this.ExecutorState.state
-      return s === 'INITIALIZING_PROPOSAL_EXECUTION' || s === 'GENERATING_PROPOSALS_FOR_EXECUTION'
+      return s === 'STARTING_EXECUTION' || s === 'INITIALIZING_PROPOSAL_EXECUTION' || s === 'GENERATING_PROPOSALS_FOR_EXECUTION'
+    },
+    isRecoveringState () {
+      return this.ExecutorState.state === 'RECOVERING_INTERRUPTED_EXECUTION'
     },
     isInProgressState () {
-      return this.isInterBrokerState || this.isIntraBrokerState || this.isStoppingState || this.isLeaderMovementState || this.isInitializingState
+      return EXECUTION_STATES.includes(this.ExecutorState.state)
+    },
+    stateBadgeClass () {
+      const s = this.ExecutorState.state || ''
+      if (s.match(/STOP|ERROR/)) return 'badge-danger'
+      if (s === 'RECOVERING_INTERRUPTED_EXECUTION') return 'badge-warning'
+      // idle is not a movement: dark, so the green of an execution stands out
+      if (s === 'NO_TASK_IN_PROGRESS') return 'badge-dark'
+      return 'badge-success'
+    },
+    interProgress () {
+      return progress(this.ExecutorState.totalDataToMove, this.ExecutorState.finishedDataMovement, this.ExecutorState.inProgressMovedData)
+    },
+    intraProgress () {
+      return progress(this.ExecutorState.totalIntraBrokerDataToMove, this.ExecutorState.finishedIntraBrokerDataMovement, this.ExecutorState.inProgressIntraBrokerMovedData)
+    },
+    hasTriggeredTaskInfo () {
+      const e = this.ExecutorState
+      return this.isInProgressState && !!(e.triggeredUserTaskId || e.triggeredSelfHealingTaskId || e.triggeredTaskReason)
     },
     parsedTaskReason () {
-      const reason = this.ExecutorState.triggeredTaskReason || ''
-      const result = { prefix: '', entries: [] }
-      // Format: "Self healing for GOAL_VIOLATION: {key1: val1, key2: val2}"
-      const match = reason.match(/^(.*?):\s*\{(.*)\}\s*$/)
-      if (!match) return result
-      result.prefix = match[1]
-      const inner = match[2]
-      // Split on top-level commas (not inside braces or parentheses)
-      const pairs = []
-      let depth = 0
-      let current = ''
-      for (let i = 0; i < inner.length; i++) {
-        const ch = inner[i]
-        if (ch === '{' || ch === '(') depth++
-        else if (ch === '}' || ch === ')') depth--
-        else if (ch === ',' && depth === 0) {
-          pairs.push(current.trim())
-          current = ''
-          continue
-        }
-        current += ch
-      }
-      if (current.trim()) pairs.push(current.trim())
-      for (const pair of pairs) {
-        // Find the first top-level colon (not inside parens/braces)
-        let d = 0
-        let colonIdx = -1
-        for (let i = 0; i < pair.length; i++) {
-          if (pair[i] === '{' || pair[i] === '(') d++
-          else if (pair[i] === '}' || pair[i] === ')') d--
-          else if (pair[i] === ':' && d === 0) { colonIdx = i; break }
-        }
-        if (colonIdx > 0) {
-          result.entries.push({
-            key: pair.substring(0, colonIdx).trim(),
-            value: pair.substring(colonIdx + 1).trim()
-          })
-        } else if (pair) {
-          result.entries.push({ key: pair, value: '' })
-        }
-      }
-      return result
+      return parseTaskReason(this.ExecutorState.triggeredTaskReason)
     },
     getPendingPartitionMovements () {
       if (typeof this.ExecutorState.pendingPartitionMovement === 'undefined') return []
@@ -587,22 +593,13 @@ export default {
       }
       this.$store.commit('seturl', newurl)
       this.loaded = false
-      if (this.autoRefreshInterval) {
-        clearInterval(this.autoRefreshInterval)
-        this.autoRefreshInterval = null
-      }
+      this.stopAutoRefresh()
       if (this.asyncRetryTimer) {
         clearTimeout(this.asyncRetryTimer)
         this.asyncRetryTimer = null
       }
       this.getState()
-      if (this.autoRefresh) {
-        this.autoRefreshInterval = setInterval(() => {
-          if (!this.loading) {
-            this.getState()
-          }
-        }, AUTO_REFRESH_INTERVAL)
-      }
+      this.startAutoRefresh()
     },
     getState () {
       const vm = this
@@ -617,7 +614,7 @@ export default {
           vm.loading = false
           vm.async = true
           vm.asyncData = result.data
-          if (vm.autoRefreshInterval) { clearInterval(vm.autoRefreshInterval); vm.autoRefreshInterval = null }
+          vm.stopAutoRefresh()
           if (vm.asyncRetryTimer) clearTimeout(vm.asyncRetryTimer)
           vm.asyncRetryTimer = setTimeout(() => vm.getState(), ASYNC_RETRY_DELAY)
         } else if (result.type === 'error') {
@@ -633,11 +630,7 @@ export default {
           vm.loading = false
           vm.$set(vm, 'ExecutorState', Object.assign(JSON.parse(JSON.stringify(DEFAULT_EXECUTOR_STATE)), result.data.ExecutorState))
           vm.loaded = true
-          if (vm.autoRefresh && !vm.autoRefreshInterval) {
-            vm.autoRefreshInterval = setInterval(() => {
-              if (!vm.loading) { vm.getState() }
-            }, AUTO_REFRESH_INTERVAL)
-          }
+          if (!vm.autoRefreshInterval) vm.startAutoRefresh()
         }
       }).catch((e) => {
         if (vm.asyncRetryTimer) { clearTimeout(vm.asyncRetryTimer); vm.asyncRetryTimer = null }
@@ -645,20 +638,6 @@ export default {
         vm.error = true
         vm.errorData = e.message || e
       })
-    },
-    toggleAutoRefresh () {
-      if (this.autoRefresh) {
-        clearInterval(this.autoRefreshInterval)
-        this.autoRefreshInterval = null
-        this.autoRefresh = false
-      } else {
-        this.autoRefresh = true
-        this.autoRefreshInterval = setInterval(() => {
-          if (!this.loading) {
-            this.getState()
-          }
-        }, AUTO_REFRESH_INTERVAL)
-      }
     },
     stopProposalExecution () {
       const vm = this
@@ -686,4 +665,5 @@ export default {
   opacity: 0
 }
 
+.triggered-task > tbody > tr > th { width: 20%; }
 </style>

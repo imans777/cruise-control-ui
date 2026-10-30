@@ -66,6 +66,14 @@
         </div>
         <div class="form-group">
           <div class="form-check">
+            <input class="form-check-input" type="checkbox" v-model='populateDiskInfo'>
+            <label class="form-check-label" title="populate_disk_info: adds the logdir of the leader and of each follower (JBOD)">
+              Show Logdirs ❓
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="form-check">
             <input class="form-check-input" type="checkbox" v-model='showURL'>
             <label class="form-check-label">
               Show URL (Debug)
@@ -108,7 +116,7 @@
     <table class="table table-sm table-bordered" v-else-if='records.length > 0'>
       <thead>
         <tr>
-          <th :key='h' v-for="h in header">{{ h | camelCase }}</th>
+          <th :key='h' v-for="h in header">{{ headerLabel(h) }}</th>
         </tr>
       </thead>
       <transition-group name="fade" tag="tbody">
@@ -125,6 +133,14 @@
             </template>
             <template v-else-if='colUnits[hk] === "int"'>
               {{ r[hv] != null ? parseInt(r[hv], 10) : '' }}
+            </template>
+            <template v-else-if='colUnits[hk] === "logdir"'>
+              <code v-if="r[hv]">{{ r[hv] }}</code><span v-else class="text-muted">unknown</span>
+            </template>
+            <template v-else-if='colUnits[hk] === "logdirs"'>
+              <div v-for="(f, fi) in (r.followers || [])" :key="fi" class="text-nowrap">
+                {{ f }}: <code v-if="(r[hv] || [])[fi]">{{ r[hv][fi] }}</code><span v-else class="text-muted">unknown</span>
+              </div>
             </template>
             <template v-else>
               {{ r[hv] }}
@@ -171,6 +187,7 @@ export default {
       numRecords: 100,
       allowCapacityEstimation: true,
       maxLoad: false,
+      populateDiskInfo: false,
       topicName: '',
       partitionRangeMin: -1,
       partitionRangeMax: -1,
@@ -185,6 +202,10 @@ export default {
       showAsyncRefreshButton: false,
       detectedUserTaskId: false // true in case the response has user-task-id
     }
+  },
+  created () {
+    // resolve the CC URL of this cluster (nothing is fetched until "Show Partition Load")
+    this.argsChanged()
   },
   beforeDestroy () {
     if (this.argsRetryTimer) {
@@ -225,6 +246,9 @@ export default {
         allow_capacity_estimation: this.allowCapacityEstimation,
         max_load: this.maxLoad
       }
+      if (this.populateDiskInfo) {
+        params.populate_disk_info = true
+      }
       if (this.topicName.length > 1) {
         params.topic = this.topicName.replace(/^\s+|\s+$/, '')
         params.topic = xssFilters.uriQueryInHTMLData(params.topic)
@@ -243,6 +267,11 @@ export default {
     }
   },
   methods: {
+    headerLabel (h) {
+      if (h === 'leaderLogdir') return 'Leader Logdir'
+      if (h === 'followerLogdirs') return 'Follower Logdirs'
+      return this.$options.filters.camelCase(h)
+    },
     onPartitionMinChanged () {
       if (this.partitionRangeMax < this.partitionRangeMin) {
         this.partitionRangeMax = this.partitionRangeMin
@@ -339,6 +368,10 @@ export default {
           } else {
             vm.header = ['topic', 'partition', 'leader', 'followers', 'CPU', 'DISK', 'NW_IN', 'NW_OUT', 'MSG_IN']
             vm.colUnits = ['str', 'int', 'int', 'list', 'pct', 'disk', 'network', 'network', 'int']
+          }
+          if (vm.records.length > 0 && Object.prototype.hasOwnProperty.call(vm.records[0], 'leaderLogdir')) {
+            vm.header = vm.header.concat(['leaderLogdir', 'followerLogdirs'])
+            vm.colUnits = vm.colUnits.concat(['logdir', 'logdirs'])
           }
           // Clear the cached task ID so the next refresh fetches fresh data
           vm.$store.commit('setTaskId', { url: vm.url, taskid: null })

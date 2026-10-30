@@ -7,6 +7,61 @@
     <div v-if='!loading && !detectedUserTaskId' class='alert alert-danger'>
       <strong>User-Task-ID</strong> header is not found in the response from the server. If you are using <a target=_blank href='https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS'>CORS</a>, please add necessary configuration to your Cruise Control as described <a target=_blank href='https://github.com/linkedin/cruise-control-ui/wiki/CORS-Method'>in this wiki.</a>
     </div>
+
+    <div class="alert alert-secondary">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" v-model='rebalanceDisk' @change="onRebalanceDisk" :disabled="loading">
+        <label class="form-check-label" title="In large clusters, this can take minutes to respond, so please be patient and don't overload the server by repeatingly switching this checkbox or moving between tabs"> Switch to "Intra Broker Rebalance Disk Proposal" ❓</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" v-model='showOptions'>
+        <label class="form-check-label">Show Proposal Options</label>
+      </div>
+      <form v-if="showOptions" class="mt-2" @submit.prevent="applyOptions">
+        <div class="row">
+          <div class="col-md-4">
+            <h6>Goals <small class="text-muted">({{ rebalanceDisk ? 'intra-broker goals; none = intra.broker.goals' : 'none = CC default goals' }})</small></h6>
+            <p class="small text-muted mb-1">The selected goals run in the listed order, highest priority first. <b>Bold</b>: hard goals. <span class="text-muted">Gray</span>: goals only some clusters use (hover for why).</p>
+            <div class="small mb-1">
+              Select: <a href="#" title="Every goal except the gray ones: those fail the request on clusters that are not set up for them (Broker Set Aware without broker sets, for one)" @click.prevent="options.goals = pickableGoals.filter(g => !g.situational).map(g => g.goal)">all</a>
+              &middot; <a href="#" @click.prevent="options.goals = []">none</a>
+            </div>
+            <div class="form-check" v-for="g in pickableGoals" :key="g.goal">
+              <input class="form-check-input" type="checkbox" :value="g.goal" v-model="options.goals">
+              <label class="form-check-label" :title="g.description" :class="{ 'text-muted': g.situational }">
+                <b v-if='g.hardGoal'>{{ g.goal.replace(/Goal/, '') | splitCamelCase }}</b>
+                <template v-else>{{ g.goal.replace(/Goal/, '') | splitCamelCase }}</template>
+              </label>
+            </div>
+          </div>
+          <div class="col-md-8">
+            <div class="form-row mb-2">
+              <label class="col-sm-4" :title="rebalanceDisk ? 'destination_broker_ids: limits the disk rebalance (and the disk statistics) to these brokers (none = every broker)' : 'destination_broker_ids: the brokers replicas may move to (none = any broker)'">{{ rebalanceDisk ? 'Brokers' : 'Destination Brokers' }} ❓</label>
+              <div class="col-sm-8">
+                <broker-picker v-model="options.destination_broker_ids" :brokers="knownBrokers" :empty-text="rebalanceDisk ? 'none: every broker' : 'none: any broker'" />
+              </div>
+            </div>
+            <div class="form-row mb-2">
+              <label class="col-sm-4" title="Only these topics may move (full-match regex). Overrides the configured topic exclusion, so __.* topics can be included explicitly. Mutually exclusive with Excluded Topics.">Included Topics ❓</label>
+              <div class="col-sm-8">
+                <input type="text" class="form-control form-control-sm" v-model="options.included_topics" :disabled="!!options.excluded_topics" placeholder="(none) regex, e.g. topic1|topic2">
+              </div>
+            </div>
+            <div class="form-row mb-2">
+              <label class="col-sm-4" title="These topics may not move (regex). Mutually exclusive with Included Topics.">Excluded Topics ❓</label>
+              <div class="col-sm-8">
+                <input type="text" class="form-control form-control-sm" v-model="options.excluded_topics" :disabled="!!options.included_topics" placeholder="(CC Default) regex">
+              </div>
+            </div>
+            <div class="text-right">
+              <button type="button" class="btn btn-sm btn-outline-secondary mr-1" @click="resetOptions" :disabled="loading">Reset</button>
+              <button type="submit" class="btn btn-sm btn-primary" :disabled="loading">Get Proposals</button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+
     <div v-if='error'>
       <exception :exception='errorData'></exception>
     </div>
@@ -23,81 +78,19 @@
       <div class="alert alert-info">
         <b>Help:</b>This page shows the state of the kafka cluster based on the optimized load calculation. Values before and after optimized load are shown respectively.
       </div>
-      <div class="form-group">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" v-model='rebalanceDisk' @change="onRebalanceDisk">
-          <label class="form-check-label" title="In large clusters, this can take minutes to respond, so please be patient and don't overload the server by repeatingly switching this checkbox or moving between tabs"> Switch to "Intra Broker Rebalance Disk Proposal" ❓</label>
-        </div>
-      </div>
-      <h4><template v-if="rebalanceDisk">Intra Broker Rebalance Disk</template> Proposal Changes Summary</h4>
-      <table class="table table-sm table-bordered">
-        <thead class="thead-light">
-          <tr>
-            <th># Replica Movements</th>
-            <th># Leader Movements</th>
-            <th>Recent Windows</th>
-            <th>Data to Move</th>
-            <th>Monitored Partitions</th>
-            <th>Balancedness Score</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>{{ numReplicaMovements }}</td>
-            <td>{{ numLeaderMovements }}</td>
-            <td>{{ recentWindows }}</td>
-            <td>{{ dataToMoveMB | formatUnits }}</td>
-            <td>{{ monitoredPartitionsPercentage ? monitoredPartitionsPercentage.toFixed(2) : null }}%</td>
-            <td :class="onDemandBalancednessScoreAfter - onDemandBalancednessScoreBefore > 0 ? 'text-success' : null">{{ onDemandBalancednessScoreBefore }}% → {{ onDemandBalancednessScoreAfter }}%</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <load-diff-table :per="'broker'" :loadBefore="loadBefore" :loadAfter="loadAfter"></load-diff-table>
-      <load-diff-table :per="'host'" :loadBefore="loadBefore" :loadAfter="loadAfter"></load-diff-table>
-
-      <h4 class="pointer" @click="showMovements = !showMovements">
-        Proposed Partition Movements ({{ movements.length }})
-        <small class="text-muted">{{ showMovements ? '(click to hide)' : '(click to show)' }}</small>
-      </h4>
-      <inter-broker-movement-table v-if="showMovements" title="" :movements="movements"></inter-broker-movement-table>
-
-      <h4 class="pointer" @click="showGoals = !showGoals">
-        Goals
-        <small class="text-muted">{{ showGoals ? '(click to hide)' : '(click to show)' }}</small>
-      </h4>
-      <table v-if="showGoals" class="table table-sm table-bordered">
-        <thead class="thead-light">
-          <tr>
-            <th>Goal &amp; Goal Violation Details</th>
-            <th>Metadata</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :key='goal.goal' v-for='goal in goals'>
-            <td>
-              <strong>{{ goal.goal }}</strong>
-              <br>
-              <!-- property renamed from goalViolated -> status upstream -->
-              <span v-if='goal.hasOwnProperty("goalViolated")'>{{ goal.goalViolated }}</span>
-              <span v-else>{{ goal.status }}</span>
-            </td>
-            <td>
-              <goal :goal='goal' />
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <optimization-result :result="result" :title="(rebalanceDisk ? 'Intra Broker Rebalance Disk ' : '') + 'Proposal Changes Summary'" :show-host-load="true" :goals-open="true" />
     </div>
   </div>
 </template>
 
 <script>
-import Goal from '@/components/Goal'
-import LoadDiffTable from '@/components/LoadDiffTable'
-import InterBrokerMovementTable from '@/components/InterBrokerMovementTable'
+import goals from '@/goals'
+import OptimizationResult from '@/components/OptimizationResult'
 import { ASYNC_RETRY_DELAY, ARGS_RETRY_MAX, ARGS_RETRY_DELAY } from '@/constants'
 import fetchCC from '@/fetchCC'
+import BrokerPicker from '@/components/BrokerPicker'
+
+const EMPTY_OPTIONS = () => ({ goals: [], destination_broker_ids: [], included_topics: '', excluded_topics: '' })
 
 export default {
   name: 'Proposals',
@@ -106,9 +99,8 @@ export default {
     cluster: String
   },
   components: {
-    Goal,
-    LoadDiffTable,
-    InterBrokerMovementTable
+    OptimizationResult,
+    BrokerPicker
   },
   data () {
     return {
@@ -121,22 +113,11 @@ export default {
       argsRetryTimer: null,
       asyncRetryTimer: null,
       rebalanceDisk: false,
-      // top level medatadata
-      numReplicaMovements: null,
-      recentWindows: null,
-      dataToMoveMB: null,
-      monitoredPartitionsPercentage: null,
-      onDemandBalancednessScoreBefore: null,
-      onDemandBalancednessScoreAfter: null,
-      numLeaderMovements: null,
-      // optimized data
-      loadBefore: {},
-      loadAfter: {},
-      proposals: [],
-      goals: [],
-      // show percentage diff
-      showMovements: false,
-      showGoals: true,
+      showOptions: false,
+      options: EMPTY_OPTIONS(), // being edited
+      applied: EMPTY_OPTIONS(), // part of the URL
+      result: {},
+      knownBrokers: [], // [{ id, host, rack }] for the broker picker: from the broker load of the results, else kafka_cluster_state
       showAsyncRefreshButton: false,
       detectedUserTaskId: false // true in case the response has user-task-id
     }
@@ -153,6 +134,9 @@ export default {
     }
   },
   watch: {
+    showOptions (shown) {
+      if (shown && !this.knownBrokers.length) this.fetchBrokers()
+    },
     group: function (ogroup, ngroup) {
       this.argsChanged()
     },
@@ -167,19 +151,53 @@ export default {
     hideHelperURL () {
       return this.$store.state.hideHelperURL
     },
+    pickableGoals () {
+      const group = this.rebalanceDisk ? 3 : 1
+      return goals.goals.filter(g => !g.skip && g.group === group)
+    },
     url () {
       // loadBeforeOptimization is removed and is available only when
       // we pass verbose=true flag
-      return this.$helpers.getURL('proposals', { rebalance_disk: this.rebalanceDisk, verbose: true })
-    },
-    movements () {
-      return this.proposals.map(item => ({ proposal: item }))
+      const params = { rebalance_disk: this.rebalanceDisk, verbose: true }
+      // goals run in the listed order (their priority), not in the order they were ticked
+      if (this.applied.goals.length) params.goals = this.pickableGoals.map(g => g.goal).filter(g => this.applied.goals.includes(g))
+      if (this.applied.destination_broker_ids.length) params.destination_broker_ids = this.applied.destination_broker_ids.join(',')
+      if (this.applied.included_topics) params.included_topics = this.applied.included_topics
+      if (this.applied.excluded_topics) params.excluded_topics = this.applied.excluded_topics
+      return this.$helpers.getURL('proposals', params)
     }
   },
   methods: {
     onRebalanceDisk () {
+      // goals of the other mode are not accepted
+      this.options.goals = []
+      this.applied.goals = []
       this.loaded = false
       this.argsChanged()
+    },
+    // the brokers of a result's broker load (every broker, also when the request is limited to some)
+    rememberBrokers (data) {
+      const brokers = ((data && (data.loadAfterOptimization || data.loadBeforeOptimization)) || {}).brokers || []
+      const byId = {}
+      this.knownBrokers.concat(brokers.map(b => ({ id: b.Broker, host: b.Host, rack: b.Rack && b.Rack !== b.Host ? b.Rack : '' })))
+        .forEach(b => { byId[b.id] = b })
+      this.knownBrokers = Object.values(byId).sort((a, b) => a.id - b.id)
+    },
+    // no result yet: the broker ids of kafka_cluster_state
+    fetchBrokers () {
+      fetchCC(this.$helpers.getURL('kafka_cluster_state')).then((r) => {
+        const ids = Object.keys(((r.data || {}).KafkaBrokerState || {}).ReplicaCountByBrokerId || {})
+        if (!this.knownBrokers.length) this.knownBrokers = ids.map(id => ({ id: Number(id), host: '', rack: '' })).sort((a, b) => a.id - b.id)
+      }).catch(() => {})
+    },
+    applyOptions () {
+      this.applied = JSON.parse(JSON.stringify(this.options))
+      this.loaded = false
+      this.argsChanged()
+    },
+    resetOptions () {
+      this.options = EMPTY_OPTIONS()
+      this.applyOptions()
     },
     argsChanged (retries) {
       retries = retries || 0
@@ -237,24 +255,8 @@ export default {
           vm.async = false
           vm.loading = false
           vm.error = false
-          const data = result.data
-          // Newer CC versions nest under data.summary; older versions put fields at top level
-          const summary = data.summary || data
-          vm.numReplicaMovements = (summary.numReplicaMovements && summary.numReplicaMovements) || summary.numIntraBrokerReplicaMovements
-          vm.recentWindows = summary.recentWindows
-          vm.dataToMoveMB = (summary.dataToMoveMB && summary.dataToMoveMB) || summary.intraBrokerDataToMoveMB
-          vm.monitoredPartitionsPercentage = summary.monitoredPartitionsPercentage
-          vm.onDemandBalancednessScoreBefore = Number(summary.onDemandBalancednessScoreBefore).toFixed(0)
-          vm.onDemandBalancednessScoreAfter = Number(summary.onDemandBalancednessScoreAfter).toFixed(0)
-          vm.numLeaderMovements = summary.numLeaderMovements
-          vm.$set(vm, 'loadBefore', data.loadBeforeOptimization || {})
-          vm.$set(vm, 'loadAfter', data.loadAfterOptimization || {})
-          vm.$set(vm, 'proposals', data.proposals || [])
-          if (Object.prototype.hasOwnProperty.call(data, 'goalSummary')) {
-            vm.$set(vm, 'goals', data.goalSummary || [])
-          } else {
-            vm.$set(vm, 'goals', data.goals || [])
-          }
+          vm.result = result.data
+          vm.rememberBrokers(result.data)
           vm.errorData = null
           vm.loaded = true
           // Clear the cached task ID so the next refresh fetches fresh data
@@ -264,14 +266,9 @@ export default {
         if (vm.asyncRetryTimer) { clearTimeout(vm.asyncRetryTimer); vm.asyncRetryTimer = null }
         vm.error = true
         vm.loading = false
-        vm.goals = []
         vm.errorData = e.message || e
       })
     }
   }
 }
 </script>
-
-<style scoped>
-.pointer { cursor: pointer; }
-</style>
