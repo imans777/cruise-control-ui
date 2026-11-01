@@ -69,15 +69,18 @@ export default {
       }
     },
     beforeExists () {
-      return !!this.cell.before
+      return this.cell.before !== undefined && this.cell.before !== null && this.cell.before !== ''
     },
     before () {
-      return (!this.numeric || this.cell.unit === 'number') ? this.cell.before : this.cell.before.toFixed(this.precision)
+      if (!this.numeric || this.cell.unit === 'number') return this.cell.before
+      if (this.cell.before === 'DEAD') return 'DEAD'
+      return Number(this.cell.before).toFixed(this.precision)
     },
     after () {
       if (!this.numeric || this.cell.unit === 'number') return this.cell.after
       if (this.cell.after === 'DEAD') return 'DEAD'
-      return this.cell.after.toFixed(this.precision)
+      if (this.cell.after === undefined || this.cell.after === null) return null
+      return Number(this.cell.after).toFixed(this.precision)
     },
     numeric () {
       return ['number', 'disk', 'pct', 'network'].includes(this.cell.unit)

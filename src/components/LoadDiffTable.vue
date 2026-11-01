@@ -6,6 +6,7 @@
       Optimized Load Difference - Per Broker
       <small class="text-muted">{{ showBrokerLoad ? '(click to hide)' : '(click to show)' }}</small>
     </h4>
+    <input v-if="showBrokerLoad" v-model="brokerFilter" type="text" class="form-control form-control-sm mb-2 broker-filter" placeholder="Filter: broker ids (e.g. 1, 3) or host / rack" title="Comma- or space-separated: a number matches that broker id, any other text a part of the host or rack">
     <table v-if="showBrokerLoad" class="table table-sm table-bordered">
     <thead class="thead-light">
       <tr>
@@ -14,7 +15,7 @@
       </tr>
     </thead>
     <tbody>
-      <template v-for="(brokerdata, brokerid) in brokerLoad.records">
+      <template v-for="(brokerdata, brokerid) in filteredBrokerRecords">
         <template v-if="hasDiskState">
           <tr v-for="([, disk], diskidx) in getSortedBrokerDisks(brokerdata)" :key="brokerid + diskidx + 'row'" :class="[diskidx == getSortedBrokerDisks(brokerdata).length - 1 ? 'thick-border' : null]">
             <th v-if="diskidx === 0" :rowspan="getSortedBrokerDisks(brokerdata).length" class="align-middle" :key="brokerid + diskidx + 'h-bid'">{{ brokerid }}</th>
@@ -63,7 +64,11 @@
 </template>
 
 <script>
+import { parseFilter, matchesFilter } from '@/brokerFilter'
 import DiffCell from '@/components/DiffCell'
+
+const DISK_KEYS = ['Replicas', 'Leaders', 'LogDir', 'DiskMB', 'DiskPct']
+const PER_DISK_NETWORK_KEYS = ['LeaderNwInRate', 'FollowerNwInRate', 'NwOutRate', 'PnwOutRate']
 
 export default {
   name: 'LoadDiffTable',
@@ -79,7 +84,7 @@ export default {
     return {
       showBrokerLoad: true,
       showHostLoad: false,
-      diskKeys: ['Replicas', 'Leaders', 'LogDir', 'DiskMB', 'DiskPct']
+      brokerFilter: ''
     }
   },
   methods: {
@@ -121,11 +126,14 @@ export default {
         BrokerState: 'brokerstate',
         Host: 'string'
       }
-      const keysToUnit = {
-        // Network doesn't change in a rebalance_disk (except for /demote_broker), so we skip most of it for more space in table
-        LeaderNwInRate: 'network',
-        NwOutRate: 'network'
-      }
+      // With per-disk network rates (load per disk), the network columns are per disk; older CCs report them per broker only,
+      // and network doesn't change in a rebalance_disk (except for /demote_broker), so we show only part of it there.
+      const keysToUnit = this.perDiskNetwork
+        ? {}
+        : {
+            LeaderNwInRate: 'network',
+            NwOutRate: 'network'
+          }
       brokerids.forEach((broker) => {
         const before = (brokerMap[0] && brokerMap[0][broker]) || {}
         const after = brokerMap[1][broker] || {}
@@ -173,6 +181,15 @@ export default {
               unit: 'pct'
             }
           }
+          if (this.perDiskNetwork) {
+            PER_DISK_NETWORK_KEYS.forEach((key) => {
+              diff.LogDir[disk][key] = {
+                before: before.DiskState && before.DiskState[disk] && before.DiskState[disk][key],
+                after: after.DiskState[disk][key],
+                unit: 'network'
+              }
+            })
+          }
         })
         unified[broker] = diff
       })
@@ -188,6 +205,15 @@ export default {
     }
   },
   computed: {
+    // per-disk network rates (LeaderNwInRate, FollowerNwInRate, NwOutRate, PnwOutRate) in DiskState
+    perDiskNetwork () {
+      if (!this.hasDiskState) return false
+      const disks = Object.values(this.loadAfter.brokers[0].DiskState || {})
+      return disks.length > 0 && disks[0].LeaderNwInRate !== undefined
+    },
+    diskKeys () {
+      return this.perDiskNetwork ? DISK_KEYS.concat(PER_DISK_NETWORK_KEYS) : DISK_KEYS
+    },
     hasDiskState () {
       if (!this.loadAfter || !this.loadAfter.brokers || !this.loadAfter.brokers.length) return false
       return !!this.loadAfter.brokers[0].DiskState
@@ -211,6 +237,20 @@ export default {
         brokerMap[1][rec.Broker] = rec
       })
       return this.hasDiskState ? this.withDiskState(brokerids, brokerMap) : this.withoutDiskState(brokerids, brokerMap)
+    },
+    // the brokers matching the filter: a number is a broker id, other text a part of the host or rack
+    filteredBrokerRecords () {
+      const f = parseFilter(this.brokerFilter)
+      const records = this.brokerLoad.records
+      if (f.empty) return records
+      // host and rack as the broker load has them (the diff records hold only the compared columns)
+      const where = {}
+      ;((this.loadAfter && this.loadAfter.brokers) || []).forEach(b => { where[b.Broker] = [b.Host, b.Rack] })
+      const out = {}
+      Object.keys(records).forEach(id => {
+        if (matchesFilter(f, [id], where[id])) out[id] = records[id]
+      })
+      return out
     },
     hostLoad () {
       const hostMap = [
@@ -264,4 +304,5 @@ export default {
 <style scoped>
 .pointer { cursor: pointer; }
 .thick-border { border-bottom-style: outset; }
+.broker-filter { max-width: 320px; }
 </style>

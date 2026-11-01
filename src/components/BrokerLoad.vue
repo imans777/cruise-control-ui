@@ -9,7 +9,7 @@
     </div>
     <div v-else-if='sortedBrokers.length > 0'>
     <div class="form-inline mb-2">
-      <input type="text" class="form-control form-control-sm" v-model="filterText" placeholder="Filter by Broker ID, Host, or Rack...">
+      <input type="text" class="form-control form-control-sm filter-input" v-model="filterText" placeholder="Filter: broker ids (e.g. 1, 3) or host / rack" title="Comma- or space-separated: a number matches that broker id, any other text a part of the host or rack">
       <label class="ml-3 mr-1">Show State & Host: </label>
       <input type=checkbox v-model=showStateHost>
       <label class="ml-3 mr-1" title="Calculated based on user-provided capacity"> ❓ Show Usage Percentages:</label>
@@ -40,11 +40,11 @@
 
           <th v-if="showPct" @click='sort("CpuPct")' style="cursor:pointer">Used</th>
 
-          <th v-if="!showPct" @click='sort("LeaderNwInRate")' style="cursor:pointer">Leader In</th><th v-else>Leader In</th>
-          <th v-if="!showPct" @click='sort("FollowerNwInRate")' style="cursor:pointer">Follower In</th><th v-else>Follower In</th>
-          <th v-if='apiMinorVersion === 2 && !showPct' @click='sort("NwOutRate")' style="cursor:pointer">Network Out</th><th v-if='apiMinorVersion === 2 && showPct'>Network Out</th>
+          <th v-if="!showPct" @click='sort("LeaderNwInRate")' style="cursor:pointer">Leader In</th><th v-else :title="diskNetworkRows ? diskShareHelp : null">Leader In<template v-if="diskNetworkRows"> ❓</template></th>
+          <th v-if="!showPct" @click='sort("FollowerNwInRate")' style="cursor:pointer">Follower In</th><th v-else :title="diskNetworkRows ? diskShareHelp : null">Follower In<template v-if="diskNetworkRows"> ❓</template></th>
+          <th v-if='apiMinorVersion === 2 && !showPct' @click='sort("NwOutRate")' style="cursor:pointer">Network Out</th><th v-if='apiMinorVersion === 2 && showPct' :title="diskNetworkRows ? diskShareHelp : null">Network Out<template v-if="diskNetworkRows"> ❓</template></th>
           <th v-if='apiMinorVersion === 1 && !showPct' @click='sort("NnwOutRate")' style="cursor:pointer">Net Network Out</th><th v-if='apiMinorVersion === 1 && showPct'>Net Network Out</th>
-          <th v-if="!showPct" @click='sort("PnwOutRate")' style="cursor:pointer">Potential Out</th><th v-else>Potential Out</th>
+          <th v-if="!showPct" @click='sort("PnwOutRate")' style="cursor:pointer">Potential Out</th><th v-else :title="diskNetworkRows ? diskShareHelp : null">Potential Out<template v-if="diskNetworkRows"> ❓</template></th>
           <th title="Leader to Follower Incoming Traffic Ratio">LF Ratio ❓</th>
           <th title="Leader Incoming to Outgoing Traffic Ratio">IO Ratio ❓</th>
         </tr>
@@ -89,28 +89,39 @@
               {{ e.CpuPct != null ? e.CpuPct.toFixed(2) : 'N/A' }} %
             </td>
 
+            <!-- per-disk network rates (load?populate_disk_info=true): each disk row shows its own rates. A disk has no
+                 network capacity, so its percentage is its share of the broker's rate (a broker's disks add up to 100 %). -->
+            <template v-if="diskNetworkRows">
+              <td v-for="col in diskNetworkColumns" :key="col.key" class="align-middle" :class="deadClass((disk || e)[col.key])">
+                <div v-if="showPct" :class="warnClass(disk ? sharePct(disk[col.key], e[col.key]) : capacityPct(e[col.key], e[col.capacity]))" :title="disk ? capacityTitle(disk[col.key], e[col.capacity]) : null">{{ disk ? shareOf(disk[col.key], e[col.key]) : pctOf(e[col.key], e[col.capacity]) }}</div>
+                <div v-else>{{ (disk || e)[col.key] | formatNetworkUnits }}</div>
+              </td>
+              <td class="align-middle">{{ ratio((disk || e).LeaderNwInRate, (disk || e).FollowerNwInRate) }}</td>
+              <td class="align-middle">{{ ratio((disk || e).LeaderNwInRate, (disk || e).NwOutRate) }}</td>
+            </template>
+            <template v-else>
             <td v-if="i === 0" :rowspan="brokerDisks(e).length" class="align-middle border-bottom-0">
-              <div v-if="showPct">{{ Number(e.LeaderNwInRate / e.NetworkInCapacity * 100).toFixed(2) }} %</div>
+              <div v-if="showPct" :class="warnClass(capacityPct(e.LeaderNwInRate, e.NetworkInCapacity))">{{ Number(e.LeaderNwInRate / e.NetworkInCapacity * 100).toFixed(2) }} %</div>
               <div v-else>{{ e.LeaderNwInRate | formatNetworkUnits }}</div>
             </td>
 
             <td v-if="i === 0" :rowspan="brokerDisks(e).length" class="align-middle border-bottom-0">
-              <div v-if="showPct">{{ Number(e.FollowerNwInRate / e.NetworkInCapacity * 100).toFixed(2) }} %</div>
+              <div v-if="showPct" :class="warnClass(capacityPct(e.FollowerNwInRate, e.NetworkInCapacity))">{{ Number(e.FollowerNwInRate / e.NetworkInCapacity * 100).toFixed(2) }} %</div>
               <div v-else>{{ e.FollowerNwInRate | formatNetworkUnits }}</div>
             </td>
 
             <td v-if="apiMinorVersion === 2 && i === 0" :rowspan="brokerDisks(e).length" class="align-middle border-bottom-0">
-              <div v-if="showPct">{{ Number(e.NwOutRate / e.NetworkOutCapacity * 100).toFixed(2) }} %</div>
+              <div v-if="showPct" :class="warnClass(capacityPct(e.NwOutRate, e.NetworkOutCapacity))">{{ Number(e.NwOutRate / e.NetworkOutCapacity * 100).toFixed(2) }} %</div>
               <div v-else>{{ e.NwOutRate | formatNetworkUnits }}</div>
             </td>
 
             <td v-if="apiMinorVersion === 1 && i === 0" :rowspan="brokerDisks(e).length" class="align-middle border-bottom-0">
-              <div v-if="showPct">{{ Number(e.NnwOutRate / e.NetworkOutCapacity * 100).toFixed(2) }} %</div>
+              <div v-if="showPct" :class="warnClass(capacityPct(e.NnwOutRate, e.NetworkOutCapacity))">{{ Number(e.NnwOutRate / e.NetworkOutCapacity * 100).toFixed(2) }} %</div>
               <div v-else>{{ e.NnwOutRate | formatNetworkUnits }}</div>
             </td>
 
             <td v-if="i === 0" :rowspan="brokerDisks(e).length" class="align-middle border-bottom-0">
-              <div v-if="showPct" :class="[Number(e.PnwOutRate / e.NetworkOutCapacity * 100) > 70 ? 'table-warning' : null]">{{ Number(e.PnwOutRate / e.NetworkOutCapacity * 100).toFixed(2) }} %</div>
+              <div v-if="showPct" :class="warnClass(capacityPct(e.PnwOutRate, e.NetworkOutCapacity))">{{ Number(e.PnwOutRate / e.NetworkOutCapacity * 100).toFixed(2) }} %</div>
               <div v-else>{{ e.PnwOutRate | formatNetworkUnits }}</div>
             </td>
 
@@ -125,6 +136,7 @@
             <td v-if="apiMinorVersion === 1 && i === 0" :rowspan="brokerDisks(e).length" class="align-middle border-bottom-0">
               {{ e.NnwOutRate > 0 ? Number(e.LeaderNwInRate / e.NnwOutRate).toFixed(3) : null }}
             </td>
+            </template>
           </tr>
         </template>
       </tbody>
@@ -135,6 +147,7 @@
 </template>
 
 <script>
+import { parseFilter, matchesFilter } from '@/brokerFilter'
 import BrokerState from '@/components/BrokerState'
 const sortBy = require('lodash.sortby')
 
@@ -154,6 +167,13 @@ export default {
       showStateHost: false,
       showPct: false,
       showPerDiskUsage: false,
+      diskNetworkColumns: [
+        { key: 'LeaderNwInRate', capacity: 'NetworkInCapacity' },
+        { key: 'FollowerNwInRate', capacity: 'NetworkInCapacity' },
+        { key: 'NwOutRate', capacity: 'NetworkOutCapacity' },
+        { key: 'PnwOutRate', capacity: 'NetworkOutCapacity' }
+      ],
+      diskShareHelp: 'On a disk row: the share of its broker\'s rate carried by the replicas on that disk (the disks of a broker add up to 100 %). A disk has no network capacity of its own; hover a cell for its rate as a share of the broker\'s network capacity.',
       sortColumn: 'Replicas',
       ascending: true,
       filterText: ''
@@ -176,6 +196,36 @@ export default {
       const disks = Object.entries(e.DiskState || {})
         .sort(([a], [b]) => a.localeCompare(b))
       return disks.length ? disks : [[null, null]]
+    },
+    deadClass (v) {
+      return v === 'DEAD' ? 'table-danger' : null
+    },
+    pctOf (v, capacity) {
+      if (v === 'DEAD' || v === undefined || v === null) return 'N/A'
+      return Number(v / capacity * 100).toFixed(2) + ' %'
+    },
+    // a disk's rate as a share of its broker's rate
+    shareOf (v, brokerRate) {
+      if (v === 'DEAD' || v === undefined || v === null) return 'N/A'
+      if (!(Number(brokerRate) > 0)) return Number(v) > 0 ? 'N/A' : '0.00 %'
+      return Number(v / brokerRate * 100).toFixed(2) + ' %'
+    },
+    capacityPct (v, capacity) {
+      return v === 'DEAD' || v === undefined || v === null || !(Number(capacity) > 0) ? null : Number(v) / Number(capacity) * 100
+    },
+    sharePct (v, brokerRate) {
+      return v === 'DEAD' || v === undefined || v === null || !(Number(brokerRate) > 0) ? null : Number(v) / Number(brokerRate) * 100
+    },
+    // the same highlight as the disk usage: above 70 %
+    warnClass (pct) {
+      return pct !== null && pct > 70 ? 'table-warning' : null
+    },
+    capacityTitle (v, capacity) {
+      return v === 'DEAD' || !(Number(capacity) > 0) ? null : this.pctOf(v, capacity) + ' of the broker\'s network capacity'
+    },
+    ratio (a, b) {
+      if (a === 'DEAD' || b === 'DEAD' || !(Number(b) > 0)) return null
+      return Number(a / b).toFixed(3)
     }
   },
   computed: {
@@ -186,13 +236,8 @@ export default {
       return sortBy(this.brokers, this.sortColumn).reverse()
     },
     filteredBrokers () {
-      if (!this.filterText) return this.sortedBrokers
-      const q = this.filterText.toLowerCase()
-      return this.sortedBrokers.filter(b => {
-        return String(b.Broker).toLowerCase().includes(q) ||
-          (b.Host && b.Host.toLowerCase().includes(q)) ||
-          (b.Rack && b.Rack.toLowerCase().includes(q))
-      })
+      const f = parseFilter(this.filterText)
+      return this.sortedBrokers.filter(b => matchesFilter(f, [b.Broker], [b.Host, b.Rack]))
     },
     apiMinorVersion () {
       // NnwOutRate has been changed to NwOutRate and Upstream
@@ -208,7 +253,17 @@ export default {
     },
     showDiskDetails () {
       return this.showPerDiskUsage && this.brokers && this.brokers.length > 0 && this.brokers[0].DiskState
+    },
+    // per-disk network rates are reported (newer CC with populate_disk_info=true)
+    diskNetworkRows () {
+      if (!this.showDiskDetails || this.apiMinorVersion !== 2) return false
+      const disks = Object.values(this.brokers[0].DiskState || {})
+      return disks.length > 0 && disks[0].LeaderNwInRate !== undefined
     }
   }
 }
 </script>
+
+<style scoped>
+.filter-input { min-width: 300px; }
+</style>

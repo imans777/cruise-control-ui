@@ -89,11 +89,16 @@
 
       <!-- detailed information -->
       <kafka-broker-state :state='KafkaBrokerState'></kafka-broker-state>
+      <!-- one filter for the partition tables below: a broker matches the partitions it is a replica of -->
+      <div class="form-inline mb-3">
+        <label class="mr-2"><b>Partitions</b></label>
+        <input v-model="partitionFilter" type="text" class="form-control form-control-sm filter-input" placeholder="Filter: broker ids (e.g. 1, 3) or topic" title="Comma- or space-separated: a number matches the partitions with that broker among their replicas, any other text a part of the topic">
+      </div>
       <!-- sorted by bad ones on top -->
-      <kafka-partition-state title='Offline Partitions' successTitle='No Offline Partitions' :partitions='KafkaPartitionState.offline' />
-      <kafka-partition-state title='With Offline Replicas' successTitle='No With Offline Replicas' :partitions='KafkaPartitionState["with-offline-replicas"]' />
-      <kafka-partition-state title='Under MinISR Replicas' successTitle='No Under MinISR Replicas' :partitions='KafkaPartitionState["under-min-isr"]' />
-      <kafka-partition-state title='Under Replicated Partitions' successTitle='No Under Replicated Partitions' :partitions='KafkaPartitionState.urp' />
+      <kafka-partition-state title='Offline Partitions' successTitle='No Offline Partitions' :partitions='KafkaPartitionState.offline' :filter='partitionFilter' />
+      <kafka-partition-state title='With Offline Replicas' successTitle='No With Offline Replicas' :partitions='KafkaPartitionState["with-offline-replicas"]' :filter='partitionFilter' />
+      <kafka-partition-state title='Under MinISR Replicas' successTitle='No Under MinISR Replicas' :partitions='KafkaPartitionState["under-min-isr"]' :filter='partitionFilter' />
+      <kafka-partition-state title='Under Replicated Partitions' successTitle='No Under Replicated Partitions' :partitions='KafkaPartitionState.urp' :filter='partitionFilter' />
     </div>
   </div>
 </template>
@@ -124,6 +129,7 @@ export default {
       asyncData: null,
       argsRetryTimer: null,
       asyncRetryTimer: null,
+      partitionFilter: '',
       stats: {
         brokers: 0,
         replicas: 0,
@@ -283,4 +289,5 @@ export default {
 .fade-enter, .fade-leave-to  {
   opacity: 0
 }
+.filter-input { min-width: 300px; }
 </style>

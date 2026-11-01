@@ -42,6 +42,9 @@ Vue.filter('formatUnits', function (v) {
 
 // network is in KB
 Vue.filter('formatNetworkUnits', function (v) {
+  if (v === 'DEAD') {
+    return 'N/A'
+  }
   v = v * 1000
   const units = ['Bps', 'KBps', 'MBps', 'GBps', 'TBps', 'PBps', 'EBps', 'ZBps', 'YBps']
   for (let i = 0; i < units.length; i++) {
@@ -53,6 +56,46 @@ Vue.filter('formatNetworkUnits', function (v) {
   }
 })
 
+// throttles are in bytes/second
+Vue.filter('formatBytesRate', function (v) {
+  if (v === null || v === undefined || v === '' || isNaN(Number(v))) {
+    return '—'
+  }
+  v = Number(v)
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s']
+  for (let i = 0; i < units.length; i++) {
+    if (v < Math.pow(1024, i + 1) || i === units.length - 1) {
+      return (v / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2) + ' ' + units[i]
+    }
+  }
+})
+
+// data movement rates are in MB/second
+Vue.filter('formatMBRate', function (v) {
+  if (v === null || v === undefined || isNaN(Number(v))) {
+    return '—'
+  }
+  return Vue.filter('formatBytesRate')(Number(v) * 1024 * 1024)
+})
+
+// durations are in milliseconds
+Vue.filter('formatDuration', function (v) {
+  if (v === null || v === undefined || isNaN(Number(v))) {
+    return '—'
+  }
+  let s = Math.round(Number(v) / 1000)
+  const d = Math.floor(s / 86400)
+  s -= d * 86400
+  const h = Math.floor(s / 3600)
+  s -= h * 3600
+  const m = Math.floor(s / 60)
+  s -= m * 60
+  if (d > 0) return d + 'd ' + h + 'h'
+  if (h > 0) return h + 'h ' + m + 'm'
+  if (m > 0) return m + 'm ' + s + 's'
+  return s + 's'
+})
+
 Vue.filter('formatHost', function (v) {
   if (v) {
     return v.replace(/\.(\w+)\.(com|org|biz|net)$/, '')
@@ -62,6 +105,9 @@ Vue.filter('formatHost', function (v) {
 })
 
 Vue.filter('formatNumber', function (v) {
+  if (v === null || v === undefined || v === '') {
+    return '—'
+  }
   return Number(v).toLocaleString()
 })
 
@@ -75,7 +121,8 @@ Vue.filter('camelCase', function (v) {
 })
 
 Vue.filter('splitCamelCase', function (v) {
-  return v.replace(/([A-Z])/g, ' $1').replace(/^./, function (str) { return str.toUpperCase() })
+  // keeps acronyms together: IntraBrokerDiskIORate -> Intra Broker Disk IO Rate
+  return v.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/^./, function (str) { return str.toUpperCase() })
 })
 
 Vue.filter('formatLocalTime', function (v) {

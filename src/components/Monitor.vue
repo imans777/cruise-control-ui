@@ -4,14 +4,10 @@
     <div class="alert alert-info" v-if='!hideHelperURL'>
       <b>URL ({{group}}, {{cluster}}):</b> <a target=_blank :href='url'>{{ url }}</a>
     </div>
-    <div v-if='!loading'>
-      <div class="alert alert-primary text-right">
-        <button class="btn btn-primary" @click='bootstrapMetrics()'>Bootstrap Metrics</button>
-        <button class="btn btn-primary" @click='getState()'>Refresh Monitor SubState</button>
-        <button :class="['btn', autoRefresh ? 'btn-success' : 'btn-outline-secondary']" @click='toggleAutoRefresh()'>
-          Auto-Refresh {{ autoRefresh ? 'ON (30s)' : 'OFF' }}
-        </button>
-      </div>
+    <div class="alert alert-primary text-right">
+      <button class="btn btn-primary" :disabled='loading' @click='bootstrapMetrics()'>Bootstrap Metrics</button>
+      <button class="btn btn-primary" :disabled='loading' @click='getState()'>Refresh Monitor SubState</button>
+      <auto-refresh v-model='autoRefreshMs' class="ml-1" />
     </div>
     <div v-if='error'>
       <exception :exception='errorData'></exception>
@@ -73,16 +69,21 @@
 </template>
 
 <script>
-import { AUTO_REFRESH_INTERVAL, ASYNC_RETRY_DELAY, ARGS_RETRY_MAX, ARGS_RETRY_DELAY } from '@/constants'
+import AutoRefresh from '@/components/AutoRefresh'
+import { autoRefreshMixin } from '@/autoRefresh'
+import { ASYNC_RETRY_DELAY, ARGS_RETRY_MAX, ARGS_RETRY_DELAY } from '@/constants'
 import fetchCC from '@/fetchCC'
 
 export default {
   name: 'Monitor',
+  mixins: [autoRefreshMixin],
   props: {
     group: String,
     cluster: String
   },
-  components: {},
+  components: {
+    AutoRefresh
+  },
   data () {
     return {
       loaded: false,
@@ -91,8 +92,6 @@ export default {
       errorData: null,
       async: false, // when the server treats this request as async
       asyncData: null, // when the server treats the request as async and sends progress instead of actual response
-      autoRefresh: true,
-      autoRefreshInterval: null,
       argsRetryTimer: null,
       asyncRetryTimer: null,
       MonitorState: {
@@ -115,10 +114,7 @@ export default {
     if (this.argsRetryTimer) {
       clearTimeout(this.argsRetryTimer)
     }
-    if (this.autoRefreshInterval) {
-      clearInterval(this.autoRefreshInterval)
-      this.autoRefreshInterval = null
-    }
+    this.stopAutoRefresh()
     if (this.asyncRetryTimer) {
       clearTimeout(this.asyncRetryTimer)
     }
@@ -179,22 +175,13 @@ export default {
       }
       this.$store.commit('seturl', newurl)
       this.loaded = false
-      if (this.autoRefreshInterval) {
-        clearInterval(this.autoRefreshInterval)
-        this.autoRefreshInterval = null
-      }
+      this.stopAutoRefresh()
       if (this.asyncRetryTimer) {
         clearTimeout(this.asyncRetryTimer)
         this.asyncRetryTimer = null
       }
       this.getState()
-      if (this.autoRefresh) {
-        this.autoRefreshInterval = setInterval(() => {
-          if (!this.loading) {
-            this.getState()
-          }
-        }, AUTO_REFRESH_INTERVAL)
-      }
+      this.startAutoRefresh()
     },
     getState () {
       const vm = this
@@ -208,7 +195,7 @@ export default {
           vm.loading = false
           vm.async = true
           vm.asyncData = result.data
-          if (vm.autoRefreshInterval) { clearInterval(vm.autoRefreshInterval); vm.autoRefreshInterval = null }
+          vm.stopAutoRefresh()
           if (vm.asyncRetryTimer) clearTimeout(vm.asyncRetryTimer)
           vm.asyncRetryTimer = setTimeout(() => vm.getState(), ASYNC_RETRY_DELAY)
         } else if (result.type === 'error') {
@@ -225,11 +212,7 @@ export default {
           const defaults = { trainingPct: 0, trained: false, numFlawedPartitions: 0, monitoredWindows: {}, state: null, numTotalPartitions: 0, numMonitoredWindows: 0, monitoringCoveragePct: 0, numValidPartitions: 0 }
           vm.$set(vm, 'MonitorState', Object.assign(defaults, result.data.MonitorState))
           vm.loaded = true
-          if (vm.autoRefresh && !vm.autoRefreshInterval) {
-            vm.autoRefreshInterval = setInterval(() => {
-              if (!vm.loading) { vm.getState() }
-            }, AUTO_REFRESH_INTERVAL)
-          }
+          if (!vm.autoRefreshInterval) vm.startAutoRefresh()
         }
       }).catch((e) => {
         if (vm.asyncRetryTimer) { clearTimeout(vm.asyncRetryTimer); vm.asyncRetryTimer = null }
@@ -252,20 +235,6 @@ export default {
         vm.error = true
         vm.errorData = e.message || e
       })
-    },
-    toggleAutoRefresh () {
-      if (this.autoRefresh) {
-        clearInterval(this.autoRefreshInterval)
-        this.autoRefreshInterval = null
-        this.autoRefresh = false
-      } else {
-        this.autoRefresh = true
-        this.autoRefreshInterval = setInterval(() => {
-          if (!this.loading) {
-            this.getState()
-          }
-        }, AUTO_REFRESH_INTERVAL)
-      }
     },
     doAction () {
       const vm = this

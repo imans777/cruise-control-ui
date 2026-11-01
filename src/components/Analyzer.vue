@@ -4,13 +4,9 @@
     <div class="alert alert-info" v-if='!hideHelperURL'>
       <b>URL ({{group}}, {{cluster}}):</b> <a target=_blank :href='url'>{{ url }}</a>
     </div>
-    <div v-if='!loading'>
-      <div class="alert alert-primary text-right">
-        <button class="btn btn-primary" @click='getState()'>Refresh Analyzer State</button>
-        <button :class="['btn', autoRefresh ? 'btn-success' : 'btn-outline-secondary']" @click='toggleAutoRefresh()'>
-          Auto-Refresh {{ autoRefresh ? 'ON (30s)' : 'OFF' }}
-        </button>
-      </div>
+    <div class="alert alert-primary text-right">
+      <button class="btn btn-primary" :disabled='loading' @click='getState()'>Refresh Analyzer State</button>
+      <auto-refresh v-model='autoRefreshMs' class="ml-1" />
     </div>
     <div v-if='error'>
       <exception :exception='errorData'></exception>
@@ -62,17 +58,21 @@
 
 <script>
 import BooleanEL from '@/components/BooleanEL'
-import { AUTO_REFRESH_INTERVAL, ASYNC_RETRY_DELAY, ARGS_RETRY_MAX, ARGS_RETRY_DELAY } from '@/constants'
+import AutoRefresh from '@/components/AutoRefresh'
+import { autoRefreshMixin } from '@/autoRefresh'
+import { ASYNC_RETRY_DELAY, ARGS_RETRY_MAX, ARGS_RETRY_DELAY } from '@/constants'
 import fetchCC from '@/fetchCC'
 
 export default {
   name: 'Analyzer',
+  mixins: [autoRefreshMixin],
   props: {
     group: String,
     cluster: String
   },
   components: {
-    'boolean-el': BooleanEL
+    'boolean-el': BooleanEL,
+    AutoRefresh
   },
   data () {
     return {
@@ -82,8 +82,6 @@ export default {
       errorData: null,
       async: false, // when the server treats this request as async
       asyncData: null, // when the server treats the request as async and sends progress instead of actual response
-      autoRefresh: true,
-      autoRefreshInterval: null,
       argsRetryTimer: null,
       asyncRetryTimer: null,
       AnalyzerState: {
@@ -97,10 +95,7 @@ export default {
     this.argsChanged()
   },
   beforeDestroy () {
-    if (this.autoRefreshInterval) {
-      clearInterval(this.autoRefreshInterval)
-      this.autoRefreshInterval = null
-    }
+    this.stopAutoRefresh()
     if (this.argsRetryTimer) {
       clearTimeout(this.argsRetryTimer)
     }
@@ -136,36 +131,13 @@ export default {
       }
       this.$store.commit('seturl', newurl)
       this.loaded = false
-      if (this.autoRefreshInterval) {
-        clearInterval(this.autoRefreshInterval)
-        this.autoRefreshInterval = null
-      }
+      this.stopAutoRefresh()
       if (this.asyncRetryTimer) {
         clearTimeout(this.asyncRetryTimer)
         this.asyncRetryTimer = null
       }
       this.getState()
-      if (this.autoRefresh) {
-        this.autoRefreshInterval = setInterval(() => {
-          if (!this.loading) {
-            this.getState()
-          }
-        }, AUTO_REFRESH_INTERVAL)
-      }
-    },
-    toggleAutoRefresh () {
-      if (this.autoRefresh) {
-        clearInterval(this.autoRefreshInterval)
-        this.autoRefreshInterval = null
-        this.autoRefresh = false
-      } else {
-        this.autoRefresh = true
-        this.autoRefreshInterval = setInterval(() => {
-          if (!this.loading) {
-            this.getState()
-          }
-        }, AUTO_REFRESH_INTERVAL)
-      }
+      this.startAutoRefresh()
     },
     getState () {
       const vm = this
@@ -179,7 +151,7 @@ export default {
           vm.loading = false
           vm.async = true
           vm.asyncData = result.data
-          if (vm.autoRefreshInterval) { clearInterval(vm.autoRefreshInterval); vm.autoRefreshInterval = null }
+          vm.stopAutoRefresh()
           if (vm.asyncRetryTimer) clearTimeout(vm.asyncRetryTimer)
           vm.asyncRetryTimer = setTimeout(() => vm.getState(), ASYNC_RETRY_DELAY)
         } else if (result.type === 'error') {
@@ -196,11 +168,7 @@ export default {
           const defaults = { isProposalReady: false, readyGoals: [], goalReadiness: [] }
           vm.$set(vm, 'AnalyzerState', Object.assign(defaults, result.data.AnalyzerState))
           vm.loaded = true
-          if (vm.autoRefresh && !vm.autoRefreshInterval) {
-            vm.autoRefreshInterval = setInterval(() => {
-              if (!vm.loading) { vm.getState() }
-            }, AUTO_REFRESH_INTERVAL)
-          }
+          if (!vm.autoRefreshInterval) vm.startAutoRefresh()
         }
       }).catch((e) => {
         if (vm.asyncRetryTimer) { clearTimeout(vm.asyncRetryTimer); vm.asyncRetryTimer = null }
