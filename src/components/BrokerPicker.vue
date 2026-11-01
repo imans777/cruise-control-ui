@@ -2,25 +2,34 @@
 <!-- Pick a set of brokers (v-model: an array of broker ids): chips for the picked ones, and a searchable list of the
      others, so that it stays usable with hundreds of brokers -->
 <template>
-  <div class="broker-picker">
+  <div :class="['broker-picker', { 'popup-open': open }]">
     <div class="chips">
-      <span v-for="id in value" :key="id" class="badge badge-primary mr-1 mb-1 chip">
-        {{ id }} <a href="#" class="text-white ml-1" title="Remove" @click.prevent="remove(id)">&times;</a>
+      <span v-for="id in value" :key="id" class="chip" :data-id="id">
+        <i class="bi bi-hdd-stack"></i> Broker {{ id }}
+        <button type="button" class="chip-remove" :title="'Remove broker ' + id" :aria-label="'Remove broker ' + id" @click="remove(id)"><i class="bi bi-x"></i></button>
       </span>
       <span v-if="!value.length" class="small text-muted">{{ emptyText }}</span>
     </div>
     <div class="input-group input-group-sm">
       <input v-model="query" type="text" class="form-control" :placeholder="'Add: broker id, host or rack (' + offered.length + ' brokers)'"
-        @focus="open = true" @keydown.enter.prevent="addFirst" @keydown.esc="open = false">
+        role="combobox" :aria-expanded="open ? 'true' : 'false'"
+        @focus="open = true" @click="open = true" @blur="open = false" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)"
+        @keydown.enter.prevent="addActive" @keydown.esc="open = false">
       <div class="input-group-append">
-        <button type="button" class="btn btn-outline-secondary" :disabled="!offered.length" @click="all">all</button>
-        <button type="button" class="btn btn-outline-secondary" :disabled="!value.length" @click="$emit('input', [])">none</button>
+        <button type="button" class="btn btn-outline-secondary" title="Pick every broker offered" :disabled="!offered.length" @click="all">all</button>
+        <button type="button" class="btn btn-outline-secondary" title="Clear the picked brokers" :disabled="!value.length" @click="$emit('input', [])">none</button>
       </div>
     </div>
-    <div v-if="open && matches.length" class="list-group options">
-      <a v-for="b in matches" :key="b.id" href="#" class="list-group-item list-group-item-action py-1" @mousedown.prevent="add(b.id)">
-        <b>{{ b.id }}</b> <small class="text-muted">{{ b.host }}<template v-if="b.rack"> &middot; {{ b.rack }}</template></small>
-      </a>
+    <!-- the brokers not picked yet; mousedown keeps the focus in the field, so several can be added in a row -->
+    <div v-if="open" class="options" role="listbox">
+      <div class="options-head">{{ query ? matches.length + ' of ' + offered.length + ' brokers match' : offered.length + ' brokers to add' }} &middot; click, or Enter</div>
+      <button v-for="(b, i) in matches" :key="b.id" type="button" role="option" tabindex="-1" :aria-selected="i === active ? 'true' : 'false'"
+        :class="['option', { active: i === active }]" @mousedown.prevent="add(b.id)" @mouseenter="active = i">
+        <span class="option-id">Broker <b>{{ b.id }}</b></span>
+        <span class="option-meta">{{ b.host }}<template v-if="b.rack"> &middot; rack {{ b.rack }}</template><template v-if="b.meta">{{ b.host || b.rack ? ' · ' : '' }}{{ b.meta }}</template></span>
+        <i class="bi bi-plus-lg option-add"></i>
+      </button>
+      <div v-if="!matches.length" class="options-empty">{{ loading ? 'Loading the brokers ...' : offered.length ? 'No broker matches "' + query + '"' : 'Every broker is picked' }}</div>
     </div>
   </div>
 </template>
@@ -31,16 +40,19 @@ export default {
   props: {
     // the picked broker ids
     value: { type: Array, required: true },
-    // [{ id, host, rack }]
+    // [{ id, host, rack, meta? }]
     brokers: { type: Array, required: true },
     // broker ids that cannot be picked here (e.g. the brokers being removed)
     exclude: { type: Array, default: () => [] },
-    emptyText: { type: String, default: 'none' }
+    emptyText: { type: String, default: 'none' },
+    // the brokers are still being fetched
+    loading: Boolean
   },
   data () {
     return {
       query: '',
-      open: false
+      open: false,
+      active: 0 // the highlighted option (arrow keys, mouse)
     }
   },
   computed: {
@@ -56,6 +68,9 @@ export default {
     }
   },
   watch: {
+    query () {
+      this.active = 0
+    },
     // a broker that becomes excluded (e.g. selected for removal) is dropped from the picked ones
     exclude (ids) {
       const out = new Set(ids.map(Number))
@@ -70,8 +85,13 @@ export default {
       this.emitSorted(this.value.concat([id]))
       this.query = ''
     },
-    addFirst () {
-      if (this.matches.length) this.add(this.matches[0].id)
+    addActive () {
+      const b = this.matches[Math.min(this.active, this.matches.length - 1)]
+      if (b) this.add(b.id)
+    },
+    move (step) {
+      this.open = true
+      if (this.matches.length) this.active = (this.active + step + this.matches.length) % this.matches.length
     },
     remove (id) {
       this.$emit('input', this.value.filter(x => Number(x) !== Number(id)))
@@ -79,20 +99,25 @@ export default {
     all () {
       this.emitSorted(this.value.concat(this.offered.map(b => b.id)))
     }
-  },
-  mounted () {
-    this.closer = (e) => { if (!this.$el.contains(e.target)) this.open = false }
-    document.addEventListener('click', this.closer)
-  },
-  beforeDestroy () {
-    document.removeEventListener('click', this.closer)
   }
 }
 </script>
 
 <style scoped>
 .broker-picker { position: relative; }
-.chips { max-height: 90px; overflow-y: auto; }
-.chip { font-size: 90%; }
-.options { position: absolute; z-index: 20; width: 100%; max-height: 240px; overflow-y: auto; box-shadow: 0 4px 10px rgba(0, 0, 0, .15); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 96px; margin-bottom: 6px; overflow-y: auto; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid rgba(129, 140, 248, 0.5); border-radius: 999px; background: var(--primary-soft); color: var(--text-strong); font-size: 0.82rem; font-weight: 500; }
+.chip .bi-hdd-stack { color: var(--primary); }
+.chip-remove { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
+.chip-remove:hover, .chip-remove:focus { outline: none; background: var(--danger-soft); color: var(--danger); }
+/* an opaque popup: the page must not show through the brokers */
+.options { position: absolute; z-index: 30; left: 0; right: 0; max-height: 280px; margin-top: 4px; padding: 4px; overflow-y: auto; border: 1px solid var(--input-border); border-radius: 10px; background: var(--popover); box-shadow: var(--shadow); }
+.options-head { padding: 4px 10px 6px; color: var(--muted); font-size: 0.72rem; }
+.option { display: flex; align-items: center; gap: 12px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; }
+.option.active { background: var(--primary-soft); }
+.option-id { min-width: 84px; color: var(--text-strong); }
+.option-meta { color: var(--muted); font-size: 0.82rem; }
+.option-add { margin-left: auto; color: var(--primary); opacity: 0; }
+.option.active .option-add { opacity: 1; }
+.options-empty { padding: 8px 10px; color: var(--muted); font-size: 0.82rem; }
 </style>

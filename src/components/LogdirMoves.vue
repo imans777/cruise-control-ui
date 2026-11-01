@@ -3,10 +3,11 @@
      brokers whose logdir changes are shown, one line each. -->
 <template>
   <div class="logdir-moves">
-    <div v-for="m in moves" :key="m.broker">
-      <b>{{ m.broker }}</b>:
+    <!-- data-move: the move as text ("2: /d4 -> /d2"), for scripts -->
+    <div v-for="m in moves" :key="m.broker" class="logdir-move" :data-move="m.broker + ': ' + (m.from || (m.isNew ? 'new replica' : 'unknown')) + ' → ' + m.to">
+      <span :class="['id-pill', { hit: filter && filter.hitId(m.broker) }]">{{ m.broker }}</span>
       <code v-if="m.from">{{ m.from }}</code><span v-else class="text-muted">{{ m.isNew ? 'new replica' : 'unknown' }}</span>
-      &rarr; <code>{{ m.to }}</code>
+      <i class="bi bi-arrow-right move-arrow"></i> <code>{{ m.to }}</code>
     </div>
   </div>
 </template>
@@ -17,7 +18,9 @@ export default {
   props: {
     proposal: { type: Object, required: true },
     // only this broker (intra-broker execution tasks)
-    brokerId: { type: [Number, String], default: null }
+    brokerId: { type: [Number, String], default: null },
+    // the table's filter (parseFilter): the brokers it picks are highlighted
+    filter: { type: Object, default: null }
   },
   computed: {
     moves () {
@@ -36,4 +39,6 @@ export default {
 
 <style scoped>
 .logdir-moves { white-space: nowrap; font-size: 90%; }
+.logdir-move { display: flex; align-items: center; gap: 7px; margin: 2px 0; }
+.move-arrow { color: var(--muted); font-size: 0.8em; }
 </style>

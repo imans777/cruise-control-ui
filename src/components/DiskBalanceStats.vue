@@ -12,7 +12,7 @@
           <table class="table table-sm table-bordered disk-stats">
             <thead class="thead-light">
               <tr>
-                <th :title="sec.help">{{ sec.title }}<template v-if="sec.help"> ❓</template></th>
+                <th :title="sec.help">{{ sec.title }}<template v-if="sec.help"> <i class="bi bi-question-circle help-icon"></i></template></th>
                 <th v-if="before">{{ after ? 'Before' : 'Value' }}</th>
                 <th v-if="after">After</th>
               </tr>
@@ -20,8 +20,8 @@
             <tbody>
               <tr v-for="row in sec.rows" :key="sec.key + '-' + row.key">
                 <th :title="row.help">{{ row.label }}</th>
-                <td v-if="before" :class="beforeClass(sec, row)" :title="beforeTitle(sec, row)">{{ formatStat(before[sec.key], row) }}</td>
-                <td v-if="after" :class="changeClass(before && before[sec.key], after[sec.key], row)">{{ formatStat(after[sec.key], row) }}</td>
+                <td v-if="before" :class="beforeClass(sec, row)" :title="beforeTitle(sec, row)"><value-cell :text="formatStat(before[sec.key], row)" /></td>
+                <td v-if="after" :class="changeClass(before && before[sec.key], after[sec.key], row)"><value-cell :text="formatStat(after[sec.key], row)" /></td>
               </tr>
             </tbody>
           </table>
@@ -43,11 +43,11 @@
           <td v-if="after">{{ get(after, 'numAliveDisks') }}</td>
         </tr>
         <template v-for="sec in sections">
-          <tr :key="sec.key" class="table-secondary"><th :colspan="columns" :title="sec.help">{{ sec.title }}<template v-if="sec.help"> ❓</template></th></tr>
+          <tr :key="sec.key" class="table-secondary"><th :colspan="columns" :title="sec.help">{{ sec.title }}<template v-if="sec.help"> <i class="bi bi-question-circle help-icon"></i></template></th></tr>
           <tr v-for="row in sec.rows" :key="sec.key + '-' + row.key">
             <th :title="row.help">{{ row.label }}</th>
-            <td v-if="before" :class="beforeClass(sec, row)" :title="beforeTitle(sec, row)">{{ formatStat(before[sec.key], row) }}</td>
-            <td v-if="after" :class="changeClass(before && before[sec.key], after[sec.key], row)">{{ formatStat(after[sec.key], row) }}</td>
+            <td v-if="before" :class="beforeClass(sec, row)" :title="beforeTitle(sec, row)"><value-cell :text="formatStat(before[sec.key], row)" /></td>
+            <td v-if="after" :class="changeClass(before && before[sec.key], after[sec.key], row)"><value-cell :text="formatStat(after[sec.key], row)" /></td>
           </tr>
         </template>
       </tbody>

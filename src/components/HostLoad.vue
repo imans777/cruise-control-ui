@@ -8,7 +8,7 @@
       <async-task :asyncData='asyncData'></async-task>
     </div>
     <div v-else-if="loading && sortedHosts.length === 0">
-      <div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div> Loading ...</div>
+      <loading-state />
     </div>
     <table class="table table-sm table-bordered" v-else-if='sortedHosts.length > 0'>
       <thead class="thead-light">
@@ -36,15 +36,15 @@
       <tbody>
         <tr v-for="e in sortedHosts" :key="e.Host">
           <td>{{ e.Host | formatHost }}</td>
-          <td :class='e.Replicas < 1 ? "table-info" : null'>{{ e.Replicas }}</td>
-          <td :class='e.Leaders < 1 ? "table-warning" : null'>{{ e.Leaders }}</td>
-          <td>{{ e.DiskMB | formatUnits }}</td>
-          <td>{{ e.CpuPct != null ? e.CpuPct.toFixed(2) : 'N/A' }} %</td>
-          <td>{{ e.LeaderNwInRate | formatNetworkUnits }}</td>
-          <td>{{ e.FollowerNwInRate | formatNetworkUnits }}</td>
-          <td v-if='apiMinorVersion === 2'>{{ e.NwOutRate | formatNetworkUnits }}</td>
-          <td v-if='apiMinorVersion === 1'>{{ e.NnwOutRate | formatNetworkUnits }}</td>
-          <td>{{ e.PnwOutRate | formatNetworkUnits }}</td>
+          <td :class='e.Replicas < 1 ? "table-info" : null'><value-cell :value="e.Replicas" /></td>
+          <td :class='e.Leaders < 1 ? "table-warning" : null'><value-cell :value="e.Leaders" /></td>
+          <td><value-cell :value="e.DiskMB" :text="$options.filters.formatUnits(e.DiskMB)" /></td>
+          <td><value-cell :value="e.CpuPct" :text="e.CpuPct != null ? e.CpuPct.toFixed(2) + ' %' : 'N/A %'" /></td>
+          <td><value-cell :value="e.LeaderNwInRate" :text="$options.filters.formatNetworkUnits(e.LeaderNwInRate)" /></td>
+          <td><value-cell :value="e.FollowerNwInRate" :text="$options.filters.formatNetworkUnits(e.FollowerNwInRate)" /></td>
+          <td v-if='apiMinorVersion === 2'><value-cell :value="e.NwOutRate" :text="$options.filters.formatNetworkUnits(e.NwOutRate)" /></td>
+          <td v-if='apiMinorVersion === 1'><value-cell :value="e.NnwOutRate" :text="$options.filters.formatNetworkUnits(e.NnwOutRate)" /></td>
+          <td><value-cell :value="e.PnwOutRate" :text="$options.filters.formatNetworkUnits(e.PnwOutRate)" /></td>
           <td>{{ e.LeaderNwInRate > 0 ? Number(e.FollowerNwInRate / e.LeaderNwInRate).toFixed(4) : null }}</td>
           <td v-if='apiMinorVersion === 2'>{{ e.NwOutRate > 0 ? Number(e.LeaderNwInRate / e.NwOutRate).toFixed(4) : null }}</td>
           <td v-if='apiMinorVersion === 1'>{{ e.NnwOutRate > 0 ? Number(e.LeaderNwInRate / e.NnwOutRate).toFixed(4) : null }}</td>

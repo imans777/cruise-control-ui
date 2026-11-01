@@ -1,43 +1,38 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <template>
-    <div>
-        <h3>config.csv Insights</h3>
-        <table class='table table-bordered'>
-            <thead>
-                <tr class='text-center'>
-                    <th colspan=3><code>config.csv</code> Data</th>
-                    <th colspan=3>Derived Values</th>
-                </tr>
-                <tr>
-                    <th>Logical Group</th>
-                    <th>CC Instance Name</th>
-                    <th>CC API URL</th>
-                    <th>CC API Absolute URL <i title="Cruise Control REST API Url">?</i></th>
-                    <th>Are CC &amp; CCFE Same Origin ?</th>
-                    <th>CORS Required ?</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr v-if='records.length === 0'>
-                    <td colspan=5>No records in <code>config.csv</code></td>
-                </tr>
-                <tr v-for='r in records' :key='r[3]' v-else>
-                    <td>{{ r[0] }} </td>
-                    <td>{{ r[1] }} </td>
-                    <td>{{ r[2] }} </td>
-                    <td>{{ r[3] }} </td>
-                    <td><boolean-el :label='r[5]'></boolean-el></td>
-                    <td><boolean-el :label='!r[5]'></boolean-el></td>
-                </tr>
-            </tbody>
-        </table>
-        <div class="alert alert-warning" v-if='corsRequired'>
-            <b>CORS Alert!</b> One or more URLs in your <code>config.csv</code> requires you to enable CORS support on your Cruise Control Server.
-        </div>
-        <div class="alert alert-primary" v-else>
-            <b>NOTE:</b> All the CC REST API URLs in the <code>config.csv</code> are configured to be Served from the Origin server (<code>{{ origin }}</code>) on which CCFE is deployed.
-        </div>
+  <div>
+    <h4 class="page-title"><i class="bi bi-file-earmark-spreadsheet"></i> config.csv Insights</h4>
+    <p class="small text-muted">The Cruise Control instances of <code>config.csv</code>, and how this UI reaches them.</p>
+    <table class='table table-sm table-bordered'>
+      <thead class="thead-light">
+        <tr>
+          <th>Group</th>
+          <th>Instance</th>
+          <th>CC API URL</th>
+          <th title="The URL the browser calls">Absolute URL <i class="bi bi-question-circle help-icon"></i></th>
+          <th title="Served from the same origin as this UI">Same Origin <i class="bi bi-question-circle help-icon"></i></th>
+          <th title="A Cruise Control on another origin needs CORS enabled">CORS Needed <i class="bi bi-question-circle help-icon"></i></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-if='records.length === 0'>
+          <td colspan=6 class="text-muted">No records in <code>config.csv</code></td>
+        </tr>
+        <tr v-for='r in records' :key='r[3]' v-else>
+          <td>{{ r[0] }}</td>
+          <td>{{ r[1] }}</td>
+          <td><code>{{ r[2] }}</code></td>
+          <td><code>{{ r[3] }}</code></td>
+          <td><boolean-el :label='r[5]'></boolean-el></td>
+          <td><span :class="['badge', !r[5] ? 'badge-warning' : 'badge-light']">{{ !r[5] ? 'yes' : 'no' }}</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="alert alert-warning" v-if='corsRequired'>
+      <b><i class="bi bi-exclamation-triangle"></i> CORS needed.</b> One or more URLs of <code>config.csv</code> are on another origin: enable CORS on those Cruise Control servers.
     </div>
+    <p class="small text-muted" v-else><i class="bi bi-check-circle text-success"></i> Every URL is served from this UI's origin (<code>{{ origin }}</code>): no CORS setup needed.</p>
+  </div>
 </template>
 
 <script>

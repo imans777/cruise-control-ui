@@ -77,11 +77,11 @@ module.exports = {
         }
       },
       {
+        // webpack 5 asset modules: url-loader hands css-loader 7 a module object instead of a URL, so fonts never load
         test: /\.(woff2?|eot|ttf|otf)(\?.*)?$/,
-        loader: 'url-loader',
-        options: {
-          limit: 10000,
-          name: utils.assetsPath('fonts/[name].[contenthash:7].[ext]')
+        type: 'asset/resource',
+        generator: {
+          filename: utils.assetsPath('fonts/[name].[contenthash:7][ext]')
         }
       }
     ]

@@ -11,13 +11,50 @@ import router from './router'
 import store from './store'
 import Exception from '@/components/Exception'
 import AsyncTask from '@/components/AsyncTask'
+import StatTile from '@/components/StatTile'
+import ValueCell from '@/components/ValueCell'
+import RefreshButton from '@/components/RefreshButton'
+import RequestUrl from '@/components/RequestUrl'
+import LoadingState from '@/components/LoadingState'
+import TopicInput from '@/components/TopicInput'
+import HitText from '@/components/HitText'
+import sticky from '@/sticky'
 import 'bootstrap/js/dist/dropdown'
-import 'bootswatch/dist/cosmo/bootstrap.css'
+import 'bootstrap/dist/css/bootstrap.css'
+import 'bootstrap-icons/font/bootstrap-icons.css'
+import '@fontsource/inter/latin-400.css'
+import '@fontsource/inter/latin-500.css'
+import '@fontsource/inter/latin-600.css'
+import '@fontsource/inter/latin-700.css'
+import '@/assets/styles/glass.css'
+import { loadThemeMode, applyThemeMode } from '@/theme'
 
 Vue.use(Vuex)
 
+// before the first render, so a reload does not flash the other theme
+applyThemeMode(loadThemeMode())
+
+// A .form-check row toggles its checkbox from anywhere in the row: its labels have no for= (the inputs have no ids),
+// so without this only the 18px box itself reacts. Labels tied to a control are left to the browser.
+document.addEventListener('click', (e) => {
+  const row = e.target.closest && e.target.closest('.form-check')
+  if (!row || e.target.closest('input, a, button, select, textarea')) return
+  const label = e.target.closest('label')
+  if (label && label.control) return
+  const box = row.querySelector('input[type="checkbox"], input[type="radio"]')
+  if (box && !box.disabled) box.click()
+})
+
 Vue.component('exception', Exception)
 Vue.component('async-task', AsyncTask)
+Vue.component('stat-tile', StatTile)
+Vue.component('value-cell', ValueCell)
+Vue.component('refresh-button', RefreshButton)
+Vue.component('request-url', RequestUrl)
+Vue.component('loading-state', LoadingState)
+Vue.component('topic-input', TopicInput)
+Vue.component('hit-text', HitText)
+Vue.directive('sticky', sticky)
 
 Axios.defaults.withCredentials = true
 Vue.prototype.$http = Axios

@@ -2,23 +2,25 @@
 
 <template>
   <div v-if="per === 'broker'">
-    <h4 class="pointer" @click="showBrokerLoad = !showBrokerLoad">
-      Optimized Load Difference - Per Broker
-      <small class="text-muted">{{ showBrokerLoad ? '(click to hide)' : '(click to show)' }}</small>
+    <h4 :class="['collapse-title', { open: showBrokerLoad }]" @click="showBrokerLoad = !showBrokerLoad">
+      <i class="bi bi-chevron-right chev"></i> Optimized Load Difference - Per Broker
     </h4>
-    <input v-if="showBrokerLoad" v-model="brokerFilter" type="text" class="form-control form-control-sm mb-2 broker-filter" placeholder="Filter: broker ids (e.g. 1, 3) or host / rack" title="Comma- or space-separated: a number matches that broker id, any other text a part of the host or rack">
+    <p v-if="showBrokerLoad && scope" class="small text-muted mb-2 scope-note"><i class="bi bi-funnel"></i> Only the {{ scope.size }} broker{{ scope.size === 1 ? '' : 's' }} the request acts on: the load of the other brokers does not change.</p>
+    <div v-if="showBrokerLoad" v-sticky class="form-inline mb-2">
+      <input v-model="brokerFilter" type="text" class="form-control form-control-sm broker-filter" placeholder="Filter: broker ids (e.g. 1, 3) or host / rack" title="Comma- or space-separated: a number matches the broker ids containing it and the rack equal to it, any other text a part of the host or rack">
+    </div>
     <table v-if="showBrokerLoad" class="table table-sm table-bordered">
     <thead class="thead-light">
       <tr>
         <th>Broker ID</th>
-        <th v-for="h in brokerLoad.heading" :key="'bh-'+h">{{ h === 'DiskMB' ? 'Disk' : h }}</th>
+        <th v-for="h in brokerLoad.heading" :key="'bh-'+h" :title="h">{{ headLabel(h) }}</th>
       </tr>
     </thead>
-    <tbody>
-      <template v-for="(brokerdata, brokerid) in filteredBrokerRecords">
+    <!-- one tbody per broker: its rows (one per disk) hover as one -->
+    <tbody v-for="(brokerdata, brokerid) in filteredBrokerRecords" :key="'broker-' + brokerid" class="row-group">
         <template v-if="hasDiskState">
           <tr v-for="([, disk], diskidx) in getSortedBrokerDisks(brokerdata)" :key="brokerid + diskidx + 'row'" :class="[diskidx == getSortedBrokerDisks(brokerdata).length - 1 ? 'thick-border' : null]">
-            <th v-if="diskidx === 0" :rowspan="getSortedBrokerDisks(brokerdata).length" class="align-middle" :key="brokerid + diskidx + 'h-bid'">{{ brokerid }}</th>
+            <th v-if="diskidx === 0" :rowspan="getSortedBrokerDisks(brokerdata).length" class="align-middle" :key="brokerid + diskidx + 'h-bid'"><span :class="['id-pill', { hit: parsedBrokerFilter.hitId(brokerid) }]">{{ brokerid }}</span></th>
             <template v-for="h in brokerLoad.heading">
               <td v-if="diskKeys.includes(h)" :key="brokerid + diskidx + h" class="align-middle">
                 <diff-cell :head='h' :cell='disk[h]' />
@@ -31,29 +33,28 @@
         </template>
         <template v-else>
           <tr :key="brokerid">
-            <th >{{ brokerid }}</th>
+            <th><span :class="['id-pill', { hit: parsedBrokerFilter.hitId(brokerid) }]">{{ brokerid }}</span></th>
             <td v-for="h in brokerLoad.heading" :key="'bd-'+h">
               <diff-cell :head='h' :cell='brokerdata[h]' />
             </td>
           </tr>
         </template>
-      </template>
     </tbody>
     </table>
   </div>
   <div v-else-if="per === 'host'">
-    <h4 class="pointer" @click="showHostLoad = !showHostLoad">
-      Optimized Load Difference - Per Host
-      <small class="text-muted">{{ showHostLoad ? '(click to hide)' : '(click to show)' }}</small>
+    <h4 :class="['collapse-title', { open: showHostLoad }]" @click="showHostLoad = !showHostLoad">
+      <i class="bi bi-chevron-right chev"></i> Optimized Load Difference - Per Host
     </h4>
+    <p v-if="showHostLoad && scope" class="small text-muted mb-2 scope-note"><i class="bi bi-funnel"></i> Only the hosts of the brokers the request acts on.</p>
     <table v-if="showHostLoad" class="table table-sm table-bordered">
       <thead class="thead-light">
         <tr>
-          <th v-for="h in hostLoad.heading" :key="'hh-'+h">{{ h }}</th>
+          <th v-for="h in hostLoad.heading" :key="'hh-'+h" :title="h">{{ headLabel(h) }}</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(hostdata, host) in hostLoad.records" :key="host">
+        <tr v-for="(hostdata, host) in scopedHostRecords" :key="host">
           <td v-for="h in hostLoad.heading" :key="'hd-'+h">
             <diff-cell :head='h' :cell='hostdata[h]' />
           </td>
@@ -69,13 +70,33 @@ import DiffCell from '@/components/DiffCell'
 
 const DISK_KEYS = ['Replicas', 'Leaders', 'LogDir', 'DiskMB', 'DiskPct']
 const PER_DISK_NETWORK_KEYS = ['LeaderNwInRate', 'FollowerNwInRate', 'NwOutRate', 'PnwOutRate']
+// the column headers of CC's load keys (as on the Cluster Load page); the key is the header's tooltip
+const HEAD_LABELS = {
+  BrokerState: 'State',
+  Host: 'Host',
+  Rack: 'Rack',
+  Replicas: 'Replicas',
+  Leaders: 'Leaders',
+  LogDir: 'Log Dir',
+  DiskMB: 'Disk',
+  DiskPct: 'Disk %',
+  CpuPct: 'CPU %',
+  LeaderNwInRate: 'Leader In',
+  FollowerNwInRate: 'Follower In',
+  NwOutRate: 'Network Out',
+  NnwOutRate: 'Net Network Out',
+  PnwOutRate: 'Potential Out'
+}
 
 export default {
   name: 'LoadDiffTable',
   props: {
     loadBefore: Object,
     loadAfter: Object,
-    per: String
+    per: String,
+    // the brokers to show (null: every broker): those a disk rebalance is limited to, or whose disks are removed (the others' load
+    // does not change)
+    brokers: { type: Array, default: null }
   },
   components: {
     DiffCell
@@ -88,6 +109,9 @@ export default {
     }
   },
   methods: {
+    headLabel (h) {
+      return HEAD_LABELS[h] || this.$options.filters.splitCamelCase(h)
+    },
     withoutDiskState (brokerids, brokerMap) {
       const unified = {}
       const keysToUnit = {
@@ -238,17 +262,38 @@ export default {
       })
       return this.hasDiskState ? this.withDiskState(brokerids, brokerMap) : this.withoutDiskState(brokerids, brokerMap)
     },
-    // the brokers matching the filter: a number is a broker id, other text a part of the host or rack
+    // the brokers matching the filter: a number is a part of a broker id or a whole rack, other text a part of the host or rack
+    parsedBrokerFilter () {
+      return parseFilter(this.brokerFilter)
+    },
+    scope () {
+      return this.brokers && this.brokers.length ? new Set(this.brokers.map(String)) : null
+    },
+    // the hosts of the brokers in scope (all of them without a scope)
+    scopedHostRecords () {
+      const records = this.hostLoad.records
+      if (!this.scope) return records
+      const hosts = new Set(((this.loadAfter && this.loadAfter.brokers) || []).filter(b => this.scope.has(String(b.Broker))).map(b => b.Host))
+      const out = {}
+      Object.keys(records).forEach(h => { if (hosts.has(h)) out[h] = records[h] })
+      return out
+    },
     filteredBrokerRecords () {
-      const f = parseFilter(this.brokerFilter)
-      const records = this.brokerLoad.records
+      const f = this.parsedBrokerFilter
+      let records = this.brokerLoad.records
+      if (this.scope) {
+        const scoped = {}
+        Object.keys(records).forEach(id => { if (this.scope.has(String(id))) scoped[id] = records[id] })
+        records = scoped
+      }
       if (f.empty) return records
       // host and rack as the broker load has them (the diff records hold only the compared columns)
       const where = {}
-      ;((this.loadAfter && this.loadAfter.brokers) || []).forEach(b => { where[b.Broker] = [b.Host, b.Rack] })
+      ;((this.loadAfter && this.loadAfter.brokers) || []).forEach(b => { where[b.Broker] = b })
       const out = {}
       Object.keys(records).forEach(id => {
-        if (matchesFilter(f, [id], where[id])) out[id] = records[id]
+        const b = where[id] || {}
+        if (matchesFilter(f, [id], [b.Host], [b.Rack])) out[id] = records[id]
       })
       return out
     },

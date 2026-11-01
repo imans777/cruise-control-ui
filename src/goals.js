@@ -1,15 +1,15 @@
 // Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information.
 export default {
   goals: [
-    // Within a group the list order is the priority order sent to CC. Group 1: the hard goals in the order of the shipped
-    // goals config, then the distribution goals.
-    // situational: a goal not every cluster uses (shown in gray)
+    // The goals are sent in the order they were ticked (their priority); the list order is only the display order. Group 1:
+    // the hard goals in the order of the shipped goals config, then the distribution goals.
+    // situational: a goal not every cluster uses or wants (shown in gray; "all" does not pick it)
     {
       goal: 'BrokerSetAwareGoal',
       situational: true,
       hardGoal: false,
       group: 1,
-      description: 'Hard goal, but only for clusters with broker sets (broker.set.config.file); without them every optimization using it fails. Ensures that the replicas of each topic stay within one broker set. With TopicPatternBrokerSetMappingPolicy, a topic is pinned to the broker set whose topicPattern it matches. First in the shipped goals list: the highest priority.'
+      description: 'Hard goal, but only for clusters with broker sets (broker.set.config.file); without them every optimization using it fails. Ensures that the replicas of each topic stay within one broker set. With TopicPatternBrokerSetMappingPolicy, a topic is pinned to the broker set whose topicPattern it matches. Tick it first, for the highest priority (as in the shipped goals list). Ahead of Min Topic Leaders Per Broker, it also keeps the topics of topics.with.min.leaders.per.broker in their broker set.'
     },
     {
       goal: 'RackAwareGoal',
@@ -58,7 +58,7 @@ export default {
       goal: 'MinTopicLeadersPerBrokerGoal',
       hardGoal: false,
       group: 1,
-      description: 'Hard goal, but only usable when listed in CC\'s goals config (not by default). Ensures that each alive broker has at least min.topic.leaders.per.broker leaders of each topic matching topics.with.min.leaders.per.broker (a full-match regex; empty = the goal does nothing). The regex must not match a topic excluded from movement, so use (?!__).* rather than .* for every topic. With 1 (the default), a topic with fewer partitions than brokers fails the optimization; 0 = each topic\'s leaders / brokers, rounded down.'
+      description: 'Hard goal, but only usable when listed in CC\'s goals config (not by default). Ensures that each alive broker has at least min.topic.leaders.per.broker leaders of each topic matching topics.with.min.leaders.per.broker (a full-match regex; empty = the goal does nothing). A topic the request cannot move (excluded, or without new replicas in a replication factor change) does not fail it: its minimum is not enforced, but not made worse either. After Broker Set Aware, a topic pinned to a broker set needs its minimum only on that set\'s brokers. With 1 (the default), a topic with fewer partitions than brokers fails the optimization; 0 = each topic\'s leaders / brokers, rounded down.'
     },
     {
       goal: 'NetworkOutboundUsageDistributionGoal',
@@ -110,9 +110,10 @@ export default {
     },
     {
       goal: 'CpuUsageDistributionGoal',
+      situational: true,
       hardGoal: false,
       group: 1,
-      description: 'Attempts to keep the CPU usage variance among brokers within a certain range relative to the average CPU utilization.'
+      description: 'Attempts to keep the CPU usage variance among brokers within a certain range relative to the average CPU utilization. Situational: the CPU usage of each replica is estimated from its broker\'s CPU in proportion to the replica\'s bytes in and out, so this goal balances an estimate.'
     },
     {
       goal: 'PreferredLeaderElectionGoal',
@@ -144,7 +145,7 @@ export default {
       goal: 'IntraBrokerDiskIORateDistributionGoal',
       hardGoal: false,
       group: 3,
-      description: 'Moves replicas between the disks of a broker to keep the estimated I/O rate of each disk within a range around the average of the broker\'s alive disks. Disk I/O is estimated from the replicas\' network rates. Keep it above the usage goal: a goal may only make moves that the goals above it accept.'
+      description: 'Moves replicas between the disks of a broker to keep the estimated I/O rate of each disk within a range around the average of the broker\'s alive disks. Disk I/O is estimated from the replicas\' network rates. Tick it before the usage goal: a goal may only make moves that the goals ticked before it accept.'
     },
     {
       goal: 'IntraBrokerDiskUsageDistributionGoal',

@@ -1,15 +1,16 @@
 <template>
   <div>
-    <div class='alert alert-danger'>
-      <b>WARNING:</b> This page makes periodic calls (Every <i>{{ periodicity }}ms</i>) to your cruise-control instances to fetch the latest cluster state. Ideally you need a monitoring/metric collection system to capture these and view in dashboard.
-      <b>Use this feature with caution.</b>
+    <div class='alert alert-warning small'>
+      <i class="bi bi-exclamation-triangle mr-1"></i>
+      <b>Note:</b> this page calls every Cruise Control instance every {{ periodicity / 1000 }}s for its cluster state. For a lasting dashboard, use a monitoring system instead.
+      Click a row to open that cluster.
     </div>
     <table class="table table-sm table-bordered">
       <thead>
         <tr>
           <th colspan=7 class="text-right">
             <span>Group Filter:</span>
-            <select v-model='selectedGroup'>
+            <select v-model='selectedGroup' class="ml-1">
               <option v-for='g in groups' :key='g'> {{ g }} </option>
             </select>
           </th>

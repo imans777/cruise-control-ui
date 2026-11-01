@@ -1,25 +1,24 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <!-- Auto-refresh interval picker (v-model: the interval in ms, 0 = off) -->
 <template>
-  <div class="btn-group" role="group" aria-label="Auto-Refresh">
-    <span class="btn btn-outline-secondary disabled">Auto-Refresh</span>
-    <button v-for="o in options" :key="o.ms" type="button"
-      :class="['btn', value === o.ms ? (o.ms ? 'btn-success' : 'btn-secondary') : 'btn-outline-secondary']"
-      @click="$emit('input', o.ms)">{{ o.label }}</button>
-  </div>
+  <segmented-control :value="value" :options="choices" aria-label="Auto-Refresh" @input="$emit('input', $event)"><i class="bi bi-arrow-repeat"></i> Auto</segmented-control>
 </template>
 
 <script>
 import { AUTO_REFRESH_OPTIONS } from '@/autoRefresh'
+import SegmentedControl from '@/components/SegmentedControl'
 
 export default {
   name: 'AutoRefresh',
+  components: {
+    SegmentedControl
+  },
   props: {
     value: { type: Number, required: true }
   },
-  data () {
-    return {
-      options: AUTO_REFRESH_OPTIONS
+  computed: {
+    choices () {
+      return AUTO_REFRESH_OPTIONS.map(o => ({ value: o.ms, label: o.label, title: o.ms ? 'Refresh every ' + o.label : 'No auto-refresh' }))
     }
   }
 }
