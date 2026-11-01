@@ -17,6 +17,7 @@
           <tr><th>Interrupted</th><td>{{ recovery.interruptedTime }}</td></tr>
           <tr><th>Resume Count</th><td>{{ recovery.resumeCount }}</td></tr>
           <tr v-if="recovery.reasonNotResumed"><th>Not Resumed Because</th><td class="response-value">{{ recovery.reasonNotResumed }}</td></tr>
+          <tr v-if="recovery.queuedExecutionNotResumed"><th>Queued, Not Resumed</th><td>The {{ queuedLabel }} queued after this execution (<code>{{ recovery.queuedExecutionNotResumed }}</code>): a restart does not resume it. Request it again once this execution is done.</td></tr>
           <tr v-if="recovery.cleanupDeadline"><th>Cleanup Deadline</th><td>{{ recovery.cleanupDeadline }} <small class="text-muted">(in-flight reassignments still running then are cancelled)</small></td></tr>
           <tr v-if="recovery.error"><th class="text-danger">Error</th><td class="text-danger response-value">{{ recovery.error }}</td></tr>
         </tbody>
@@ -30,11 +31,11 @@
         <code v-for="p in recovery.inFlightPartitionMovements" :key="p" class="mr-2">{{ p }}</code>
       </div>
       <div v-if="recovery.keptThrottles && recovery.keptThrottles.length" class="mb-2">
-        <h6 title="Throttles set by someone else (kept), and brokers whose throttles are retained until they are reachable">Kept Throttles ❓</h6>
+        <h6 title="Throttles set by someone else (kept), and brokers whose throttles are retained until they are reachable">Kept Throttles <i class="bi bi-question-circle help-icon"></i></h6>
         <ul class="mb-0"><li v-for="(t, i) in recovery.keptThrottles" :key="i" class="small">{{ t }}</li></ul>
       </div>
       <div v-if="recovery.divergences && recovery.divergences.length">
-        <h6 title="Differences between the persisted execution and the cluster found at startup">Divergences ❓</h6>
+        <h6 title="Differences between the persisted execution and the cluster found at startup">Divergences <i class="bi bi-question-circle help-icon"></i></h6>
         <ul class="mb-0"><li v-for="(d, i) in recovery.divergences" :key="i" class="small">{{ d }}</li></ul>
       </div>
     </div>
@@ -42,6 +43,8 @@
 </template>
 
 <script>
+import { queuedExecutionLabel } from '@/ccOptions'
+
 const STATUS = {
   DECIDING: { color: 'info', help: 'Cruise Control is deciding whether to resume the interrupted execution or to clean it up.' },
   RESUMED: { color: 'success', help: 'The interrupted execution was resumed.' },
@@ -68,6 +71,9 @@ export default {
     recovery: { type: Object, required: true }
   },
   computed: {
+    queuedLabel () {
+      return queuedExecutionLabel(this.recovery.queuedExecutionNotResumed)
+    },
     statusColor () {
       return (STATUS[this.recovery.status] || { color: 'secondary' }).color
     },

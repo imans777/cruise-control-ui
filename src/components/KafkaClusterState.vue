@@ -1,13 +1,9 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <template>
   <div>
-    <div class="alert alert-info" v-if='!$store.state.hideHelperURL'>
-      <b>URL ({{group}}, {{cluster}}):</b> <a target=_blank :href='url'>{{ url }}</a>
-    </div>
-    <div v-if='!loading'>
-      <div class="alert alert-primary text-right">
-        <button class="btn btn-primary" @click='getKafkaState()'>Refresh Kafka Cluster State</button>
-      </div>
+    <request-url :url="url" />
+    <div v-sticky class="toolbar">
+      <refresh-button label="Refresh Kafka Cluster State" :loading="loading" @click="getKafkaState()" />
     </div>
     <div v-if='error'>
       <exception :exception='errorData'></exception>
@@ -16,89 +12,52 @@
       <async-task :asyncData='asyncData'></async-task>
     </div>
     <div v-else-if='!loaded && loading'>
-      <div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div> Loading ...</div>
+      <loading-state />
     </div>
     <div v-else>
       <!-- statistics -->
-      <div class="card-deck mb-3">
-        <div class="card text-center">
-          <div class="card-header">Kafka Brokers</div>
-          <div class="card-body">
-            <h1 :class="['card-text', stats_brokers > 0 ? 'text-success' : 'text-danger']">{{ stats_brokers }}</h1>
+      <div class="stat-grid">
+        <stat-tile label="Kafka Brokers" icon="bi-hdd-stack" :tone="stats_brokers > 0 ? 'success' : 'danger'" :value="stats_brokers" />
+        <stat-tile label="Kafka Topics" icon="bi-collection" :tone="KafkaBrokerState.Summary.Topics > 0 ? 'primary' : 'warning'" :value="KafkaBrokerState.Summary.Topics" />
+        <stat-tile label="Leader Partitions" icon="bi-star" :tone="stats_leaders > 0 ? 'primary' : 'danger'" :value="stats_leaders" />
+        <stat-tile label="Total Replicas" icon="bi-files" :tone="stats_replicas > 0 ? 'primary' : 'danger'" :value="stats_replicas" />
+        <stat-tile label="Avg Replication Factor" icon="bi-layers" :tone="stats_leaders > 0 && stats_replicas / stats_leaders >= 3 ? 'success' : 'info'" :value="stats_leaders > 0 ? Number(stats_replicas / stats_leaders).toFixed(2) : 'N/A'" />
+        <stat-tile label="Out Of Sync Replicas" icon="bi-exclamation-triangle" :tone="stats_outofsync === 0 ? 'success' : 'danger'" :value="stats_outofsync" />
+        <!-- per broker: max / avg / std, and how even the brokers are -->
+        <stat-tile v-for="sp in perBroker" :key="sp.label" wide :label="sp.label" :icon="sp.icon" tone="primary">
+          <div class="spread">
+            <div><small>max</small>{{ sp.max }}</div>
+            <div><small>avg</small>{{ sp.avg }}</div>
+            <div><small>std</small>{{ sp.std }}</div>
           </div>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Total Leader Partitions</div>
-          <div class="card-body">
-            <h1 :class="['card-text', stats_leaders > 0 ? 'text-success' : 'text-danger']">{{ stats_leaders }}</h1>
-          </div>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Total Replicas</div>
-          <div class="card-body">
-            <h1 :class="['card-text', stats_replicas > 0 ? 'text-success' : 'text-danger']">{{ stats_replicas }}</h1>
-          </div>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Avg RF.</div>
-          <div class="card-body">
-            <h1 :class="['card-text', stats_leaders > 0 && stats_replicas / stats_leaders >= 3 ? 'text-success' : 'text-info']">{{ stats_leaders > 0 ? Number(stats_replicas / stats_leaders).toFixed(2) : 'N/A' }}</h1>
-          </div>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Out Of Sync Replicas</div>
-          <div class="card-body">
-            <h1 :class="['card-text', stats_outofsync === 0 ? 'text-success' : 'text-danger']">{{ stats_outofsync }}</h1>
-          </div>
-        </div>
-      </div>
-      <div class="card-deck mb-3">
-        <div class="card text-center">
-          <div class="card-header">Kafka Topics</div>
-          <div class="card-body">
-            <h1 :class="['card-text', KafkaBrokerState.Summary.Topics > 0 ? 'text-success' : 'text-warning']">{{ KafkaBrokerState.Summary.Topics }}</h1>
-          </div>
-        </div>
-        <div class="card text-center">
-          <ul class="list-group">
-            <li class="list-group-item"> Max Leader/Broker: {{ Number(KafkaBrokerState.Summary.MaxLeadersPerBroker).toFixed(0) }} </li>
-            <li class="list-group-item"> Avg Leader/Broker: {{ Number(KafkaBrokerState.Summary.AvgLeadersPerBroker).toFixed(0) }} </li>
-            <li class="list-group-item"> Std Leader/Broker: {{ Number(KafkaBrokerState.Summary.StdLeadersPerBroker).toFixed(1) }} </li>
-          </ul>
-        </div>
-        <div class="card text-center">
-          <ul class="list-group">
-            <li class="list-group-item"> Max Replica/Broker: {{ Number(KafkaBrokerState.Summary.MaxReplicasPerBroker).toFixed(0) }} </li>
-            <li class="list-group-item"> Avg Replica/Broker: {{ Number(KafkaBrokerState.Summary.AvgReplicasPerBroker).toFixed(0) }} </li>
-            <li class="list-group-item"> Std Replica/Broker: {{ Number(KafkaBrokerState.Summary.StdReplicasPerBroker).toFixed(1) }} </li>
-          </ul>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Total Online LogDirs</div>
-          <div class="card-body">
-            <h1 :class="['card-text', stats_online_logdirs === 0 ? 'text-danger' : 'text-success']">{{ stats_online_logdirs }}</h1>
-          </div>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Total Offline LogDirs</div>
-          <div class="card-body">
-            <h1 :class="['card-text', stats_offline_logdirs === 0 ? 'text-success' : 'text-danger']">{{ stats_offline_logdirs }}</h1>
-          </div>
-        </div>
+          <template #sub>
+            <div class="spread-bar" title="Evenness: the average as a share of the maximum (100% = every broker has the same number)"><span :style="{ width: (sp.evenness || 0) + '%' }"></span></div>
+            <div class="d-flex justify-content-between mt-1">
+              <span>evenness {{ sp.evenness === null ? 'N/A' : sp.evenness + '%' }}</span>
+              <span title="Standard deviation over average: the lower, the more even">std / avg {{ sp.cv === null ? 'N/A' : sp.cv + '%' }}</span>
+            </div>
+          </template>
+        </stat-tile>
+        <stat-tile label="Online LogDirs" icon="bi-device-hdd" :tone="stats_online_logdirs === 0 ? 'danger' : 'success'" :value="stats_online_logdirs" />
+        <stat-tile label="Offline LogDirs" icon="bi-x-octagon" :tone="stats_offline_logdirs === 0 ? 'success' : 'danger'" :value="stats_offline_logdirs" />
       </div>
 
       <!-- detailed information -->
       <kafka-broker-state :state='KafkaBrokerState'></kafka-broker-state>
-      <!-- one filter for the partition tables below: a broker matches the partitions it is a replica of -->
-      <div class="form-inline mb-3">
-        <label class="mr-2"><b>Partitions</b></label>
-        <input v-model="partitionFilter" type="text" class="form-control form-control-sm filter-input" placeholder="Filter: broker ids (e.g. 1, 3) or topic" title="Comma- or space-separated: a number matches the partitions with that broker among their replicas, any other text a part of the topic">
+      <!-- one filter for the partition tables below: a broker matches the partitions it is a replica of; it floats over them -->
+      <div class="partitions-panel">
+        <div v-sticky class="form-inline mb-2">
+          <label class="mr-2"><b>Partitions</b></label>
+          <input v-model="partitionFilter" type="text" class="form-control form-control-sm filter-input" placeholder="Filter: broker ids (e.g. 1, 3) or topic" title="Comma- or space-separated: a number matches the partitions with a broker id containing it among their replicas, any other text a part of the topic">
+        </div>
+        <!-- sorted by bad ones on top -->
+        <div class="partition-health">
+          <kafka-partition-state title='Offline Partitions' successTitle='No Offline Partitions' :partitions='KafkaPartitionState.offline' :filter='partitionFilter' />
+          <kafka-partition-state title='With Offline Replicas' successTitle='No With Offline Replicas' :partitions='KafkaPartitionState["with-offline-replicas"]' :filter='partitionFilter' />
+          <kafka-partition-state title='Under MinISR Replicas' successTitle='No Under MinISR Replicas' :partitions='KafkaPartitionState["under-min-isr"]' :filter='partitionFilter' />
+          <kafka-partition-state title='Under Replicated Partitions' successTitle='No Under Replicated Partitions' :partitions='KafkaPartitionState.urp' :filter='partitionFilter' />
+        </div>
       </div>
-      <!-- sorted by bad ones on top -->
-      <kafka-partition-state title='Offline Partitions' successTitle='No Offline Partitions' :partitions='KafkaPartitionState.offline' :filter='partitionFilter' />
-      <kafka-partition-state title='With Offline Replicas' successTitle='No With Offline Replicas' :partitions='KafkaPartitionState["with-offline-replicas"]' :filter='partitionFilter' />
-      <kafka-partition-state title='Under MinISR Replicas' successTitle='No Under MinISR Replicas' :partitions='KafkaPartitionState["under-min-isr"]' :filter='partitionFilter' />
-      <kafka-partition-state title='Under Replicated Partitions' successTitle='No Under Replicated Partitions' :partitions='KafkaPartitionState.urp' :filter='partitionFilter' />
     </div>
   </div>
 </template>
@@ -173,6 +132,28 @@ export default {
     }
   },
   computed: {
+    // the leaders and the replicas per broker: max, avg, std, evenness (avg / max) and std / avg, in %
+    perBroker () {
+      const s = this.KafkaBrokerState.Summary
+      const spread = (label, icon, max, avg, std) => {
+        max = Number(max)
+        avg = Number(avg)
+        std = Number(std)
+        return {
+          label,
+          icon,
+          max: isNaN(max) ? 'N/A' : max.toFixed(0),
+          avg: isNaN(avg) ? 'N/A' : avg.toFixed(1),
+          std: isNaN(std) ? 'N/A' : std.toFixed(1),
+          evenness: max > 0 ? Math.round(avg / max * 100) : null,
+          cv: avg > 0 ? Math.round(std / avg * 100) : null
+        }
+      }
+      return [
+        spread('Leaders per Broker', 'bi-star-half', s.MaxLeadersPerBroker, s.AvgLeadersPerBroker, s.StdLeadersPerBroker),
+        spread('Replicas per Broker', 'bi-diagram-3', s.MaxReplicasPerBroker, s.AvgReplicasPerBroker, s.StdReplicasPerBroker)
+      ]
+    },
     url () {
       return this.$helpers.getURL('kafka_cluster_state')
     },

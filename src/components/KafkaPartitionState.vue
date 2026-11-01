@@ -1,9 +1,10 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <template>
-  <div v-if='partitions'>
-    <h4>{{ title }}</h4>
-    <div class="alert alert-success" v-if='partitions.length <= 0'>{{ successTitle }}</div>
-    <div class="alert alert-secondary" v-else-if='!filtered.length'>None of the {{ partitions.length }} matches the filter.</div>
+  <!-- none: one compact line (several of them sit side by side); some: the title and the table -->
+  <div v-if='partitions && partitions.length <= 0' class="health-ok"><i class="bi bi-check-circle-fill"></i> {{ successTitle }}</div>
+  <div v-else-if='partitions' class="pstate-full">
+    <h4><i class="bi bi-exclamation-octagon-fill text-danger"></i> {{ title }} <span class="badge badge-danger">{{ partitions.length }}</span></h4>
+    <p class="small text-muted" v-if='!filtered.length'><i class="bi bi-funnel"></i> None of the {{ partitions.length }} matches the filter.</p>
     <table class="table table-sm table-bordered" v-else>
       <thead class="thead-light">
         <tr>
@@ -17,26 +18,27 @@
       </thead>
       <tbody>
         <tr v-for='part in pagepartitions' :key='part.topic + "-" + part.partition'>
-          <td>{{ part.topic }}</td>
+          <td><hit-text :text="part.topic" :filter="parsed" /></td>
           <td>{{ part.partition }}</td>
-          <td>{{ part.replicas }}</td>
-          <td>{{ part.leader }}</td>
-          <td>{{ part['in-sync'] }}</td>
-          <td :class='part["out-of-sync"] && part["out-of-sync"].length ? "table-danger" : null'>{{ part['out-of-sync'] }}</td>
+          <td :data-ids="ids(part.replicas)"><span class="id-list"><span v-for="r in part.replicas" :key="r" :class="['id-pill', { hit: parsed.hitId(r) }]">{{ r }}</span></span></td>
+          <td><span v-if="part.leader != null && part.leader !== -1" :class="['id-pill', { hit: parsed.hitId(part.leader) }]">{{ part.leader }}</span><span v-else class="text-danger">none</span></td>
+          <td :data-ids="ids(part['in-sync'])"><span class="id-list"><span v-for="r in part['in-sync']" :key="r" :class="['id-pill', { hit: parsed.hitId(r) }]">{{ r }}</span></span></td>
+          <td :data-ids="ids(part['out-of-sync'])" :class='part["out-of-sync"] && part["out-of-sync"].length ? "table-danger" : null'><span class="id-list"><span v-for="r in part['out-of-sync']" :key="r" :class="['id-pill', { hit: parsed.hitId(r) }]">{{ r }}</span></span></td>
         </tr>
       </tbody>
       <tfoot>
         <tr>
-          <td colspan=3>
-            Found {{ filtered.length }}<template v-if="filtered.length !== partitions.length"> of {{ partitions.length }}</template> Records
-          </td>
-          <td colspan=3 class='text-right'>
-            <label> #Records Per Page:</label>
-            <input v-model.number='perpage' type='number' min='1'>
-            <label> Page #</label>
-            <select v-model='pageNumber'>
-              <option v-for='p in pages' :key='p' :value='p'>{{ p }}</option>
-            </select>
+          <td colspan=6>
+            <div class="pager">
+              <span class="text-muted">{{ filtered.length ? (pageNumber - 1) * perpage + 1 : 0 }}–{{ Math.min(pageNumber * perpage, filtered.length) }} of {{ filtered.length }}<template v-if="filtered.length !== partitions.length"> (filtered from {{ partitions.length }})</template></span>
+              <span class="ml-auto text-muted">Rows</span>
+              <select v-model.number='perpage' class="custom-select custom-select-sm pager-size" aria-label="Rows per page">
+                <option v-for="n in [10, 25, 50, 100]" :key="n" :value="n">{{ n }}</option>
+              </select>
+              <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="pageNumber <= 1" aria-label="Previous page" @click="pageNumber--"><i class="bi bi-chevron-left"></i></button>
+              <span>Page {{ pageNumber }} of {{ Math.max(1, pages.length) }}</span>
+              <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="pageNumber >= pages.length" aria-label="Next page" @click="pageNumber++"><i class="bi bi-chevron-right"></i></button>
+            </div>
           </td>
         </tr>
       </tfoot>
@@ -65,14 +67,19 @@ export default {
     }
   },
   watch: {
+    perpage () {
+      this.pageNumber = 1
+    },
     filter () {
       this.pageNumber = 1
     }
   },
   computed: {
+    parsed () {
+      return parseFilter(this.filter)
+    },
     filtered () {
-      const f = parseFilter(this.filter)
-      const rows = this.partitions.filter(p => matchesFilter(f, p.replicas, [p.topic]))
+      const rows = this.partitions.filter(p => matchesFilter(this.parsed, p.replicas, [p.topic]))
       // the chosen column, then topic and partition
       const key = this.sortKey
       const cmp = (a, b) => key === 'topic' ? String(a.topic).localeCompare(String(b.topic)) : Number(a[key]) - Number(b[key])
@@ -92,6 +99,10 @@ export default {
     }
   },
   methods: {
+    // a broker id list as "[1,2]" (as it was shown before the pills)
+    ids (list) {
+      return JSON.stringify(list || [])
+    },
     arrow (key) {
       return this.sortKey === key ? (this.ascending ? '▲' : '▼') : ''
     },
@@ -105,5 +116,7 @@ export default {
 </script>
 
 <style scoped>
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.82rem; }
+.pager-size { width: auto; }
 .pointer { cursor: pointer; }
 </style>
