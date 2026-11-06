@@ -1,63 +1,40 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <template>
   <div>
-    <div class="alert alert-info" v-if='!hideHelperURL'>
-      <b>URL ({{group}}, {{cluster}}):</b> <a target=_blank :href='url'>{{ url }}</a>
-    </div>
+    <request-url :url="url" />
     <div v-if='!loading && !detectedUserTaskId' class='alert alert-danger'>
       <strong>User-Task-ID</strong> header is not found in the response from the server. If you are using <a target=_blank href='https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS'>CORS</a>, please add necessary configuration to your Cruise Control as described <a target=_blank href='https://github.com/linkedin/cruise-control-ui/wiki/CORS-Method'>in this wiki.</a>
     </div>
 
-    <div class="alert alert-secondary">
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" v-model='rebalanceDisk' @change="onRebalanceDisk" :disabled="loading">
-        <label class="form-check-label" title="In large clusters, this can take minutes to respond, so please be patient and don't overload the server by repeatingly switching this checkbox or moving between tabs"> Switch to "Intra Broker Rebalance Disk Proposal" ❓</label>
+    <div class="card card-body py-2 mb-3 proposals-bar">
+      <div class="d-flex flex-wrap align-items-center">
+        <!-- inter-broker proposals (brokers) or intra-broker ones (the disks inside brokers) -->
+        <segmented-control :value="rebalanceDisk" :options="kindOptions" :disabled="loading" aria-label="Proposal kind" @input="setKind">Proposals for</segmented-control>
+        <button type="button" :class="['btn', 'btn-sm', 'ml-2', showOptions ? 'btn-primary' : 'btn-outline-secondary']" :aria-expanded="showOptions ? 'true' : 'false'" @click="showOptions = !showOptions">
+          <i class="bi bi-sliders"></i> Options<template v-if="appliedCount"> &middot; {{ appliedCount }} set</template>
+        </button>
+        <small class="text-muted ml-3">{{ rebalanceDisk ? 'Moves replicas between the disks of each broker; can take minutes on a big cluster.' : 'Moves replicas and leadership between brokers.' }}</small>
       </div>
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" v-model='showOptions'>
-        <label class="form-check-label">Show Proposal Options</label>
-      </div>
-      <form v-if="showOptions" class="mt-2" @submit.prevent="applyOptions">
-        <div class="row">
-          <div class="col-md-4">
-            <h6>Goals <small class="text-muted">({{ rebalanceDisk ? 'intra-broker goals; none = intra.broker.goals' : 'none = CC default goals' }})</small></h6>
-            <p class="small text-muted mb-1">The selected goals run in the listed order, highest priority first. <b>Bold</b>: hard goals. <span class="text-muted">Gray</span>: goals only some clusters use (hover for why).</p>
-            <div class="small mb-1">
-              Select: <a href="#" title="Every goal except the gray ones: those fail the request on clusters that are not set up for them (Broker Set Aware without broker sets, for one)" @click.prevent="options.goals = pickableGoals.filter(g => !g.situational).map(g => g.goal)">all</a>
-              &middot; <a href="#" @click.prevent="options.goals = []">none</a>
-            </div>
-            <div class="form-check" v-for="g in pickableGoals" :key="g.goal">
-              <input class="form-check-input" type="checkbox" :value="g.goal" v-model="options.goals">
-              <label class="form-check-label" :title="g.description" :class="{ 'text-muted': g.situational }">
-                <b v-if='g.hardGoal'>{{ g.goal.replace(/Goal/, '') | splitCamelCase }}</b>
-                <template v-else>{{ g.goal.replace(/Goal/, '') | splitCamelCase }}</template>
-              </label>
-            </div>
+      <form v-if="showOptions" class="mt-3 proposal-options" @submit.prevent="applyOptions">
+        <h6>Goals <small class="text-muted">({{ rebalanceDisk ? 'intra-broker goals; none = intra.broker.goals' : 'none = CC default goals' }})</small></h6>
+        <goal-picker v-model="options.goals" :goals="pickableGoals" />
+        <div class="form-row mt-3">
+          <div class="form-group col-md-4">
+            <label :title="rebalanceDisk ? 'destination_broker_ids: limits the disk rebalance (and the disk statistics) to these brokers (none = every broker)' : 'destination_broker_ids: the brokers replicas may move to (none = any broker)'">{{ rebalanceDisk ? 'Brokers' : 'Destination Brokers' }} <i class="bi bi-question-circle help-icon"></i></label>
+            <broker-picker v-model="options.destination_broker_ids" :brokers="knownBrokers" :empty-text="rebalanceDisk ? 'none: every broker' : 'none: any broker'" />
           </div>
-          <div class="col-md-8">
-            <div class="form-row mb-2">
-              <label class="col-sm-4" :title="rebalanceDisk ? 'destination_broker_ids: limits the disk rebalance (and the disk statistics) to these brokers (none = every broker)' : 'destination_broker_ids: the brokers replicas may move to (none = any broker)'">{{ rebalanceDisk ? 'Brokers' : 'Destination Brokers' }} ❓</label>
-              <div class="col-sm-8">
-                <broker-picker v-model="options.destination_broker_ids" :brokers="knownBrokers" :empty-text="rebalanceDisk ? 'none: every broker' : 'none: any broker'" />
-              </div>
-            </div>
-            <div class="form-row mb-2">
-              <label class="col-sm-4" title="Only these topics may move (full-match regex). Overrides the configured topic exclusion, so __.* topics can be included explicitly. Mutually exclusive with Excluded Topics.">Included Topics ❓</label>
-              <div class="col-sm-8">
-                <input type="text" class="form-control form-control-sm" v-model="options.included_topics" :disabled="!!options.excluded_topics" placeholder="(none) regex, e.g. topic1|topic2">
-              </div>
-            </div>
-            <div class="form-row mb-2">
-              <label class="col-sm-4" title="These topics may not move (regex). Mutually exclusive with Included Topics.">Excluded Topics ❓</label>
-              <div class="col-sm-8">
-                <input type="text" class="form-control form-control-sm" v-model="options.excluded_topics" :disabled="!!options.included_topics" placeholder="(CC Default) regex">
-              </div>
-            </div>
-            <div class="text-right">
-              <button type="button" class="btn btn-sm btn-outline-secondary mr-1" @click="resetOptions" :disabled="loading">Reset</button>
-              <button type="submit" class="btn btn-sm btn-primary" :disabled="loading">Get Proposals</button>
-            </div>
+          <div class="form-group col-md-4">
+            <label title="Only these topics may move (full-match regex). Overrides the configured topic exclusion, so __.* topics can be included explicitly. Mutually exclusive with Excluded Topics.">Included Topics <i class="bi bi-question-circle help-icon"></i></label>
+            <topic-input v-model="options.included_topics" :disabled="!!options.excluded_topics" placeholder="(none) regex, e.g. topic1|topic2" />
           </div>
+          <div class="form-group col-md-4">
+            <label title="These topics may not move (regex). Mutually exclusive with Included Topics.">Excluded Topics <i class="bi bi-question-circle help-icon"></i></label>
+            <topic-input v-model="options.excluded_topics" :disabled="!!options.included_topics" placeholder="(CC Default) regex" />
+          </div>
+        </div>
+        <div class="text-right">
+          <button type="button" class="btn btn-sm btn-outline-secondary mr-1" @click="resetOptions" :disabled="loading">Reset</button>
+          <button type="submit" class="btn btn-sm btn-primary" :disabled="loading">Get Proposals</button>
         </div>
       </form>
     </div>
@@ -66,19 +43,16 @@
       <exception :exception='errorData'></exception>
     </div>
     <div v-else-if='async'>
-      <div class="alert alert-info text-center" v-if='showAsyncRefreshButton'>
-        <button class="btn btn-sm btn-secondary" @click='getProposals()'>⟳ Refresh View Now (Task-Id: {{ taskId }} )</button>
-      </div>
-      <async-task :asyncData='asyncData'></async-task>
+      <async-task :asyncData='asyncData' :task-id="taskId">
+        <button v-if='showAsyncRefreshButton' class="btn btn-sm btn-outline-secondary" @click='getProposals()'><i class="bi bi-arrow-clockwise"></i> Check now</button>
+      </async-task>
     </div>
     <div v-else-if='!loaded && loading'>
-      <div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div> Loading ...</div>
+      <loading-state />
     </div>
     <div v-else-if='loaded'>
-      <div class="alert alert-info">
-        <b>Help:</b>This page shows the state of the kafka cluster based on the optimized load calculation. Values before and after optimized load are shown respectively.
-      </div>
-      <optimization-result :result="result" :title="(rebalanceDisk ? 'Intra Broker Rebalance Disk ' : '') + 'Proposal Changes Summary'" :show-host-load="true" :goals-open="true" />
+      <p class="small text-muted mb-2"><i class="bi bi-info-circle"></i> The cluster as Cruise Control would leave it after these proposals: the values show before and after the optimization.</p>
+      <optimization-result :result="result" :title="(rebalanceDisk ? 'Intra Broker Rebalance Disk ' : '') + 'Proposal Changes Summary'" :show-host-load="true" :goals-open="true" :brokers="rebalanceDisk && applied.destination_broker_ids.length ? applied.destination_broker_ids : null" />
     </div>
   </div>
 </template>
@@ -89,6 +63,8 @@ import OptimizationResult from '@/components/OptimizationResult'
 import { ASYNC_RETRY_DELAY, ARGS_RETRY_MAX, ARGS_RETRY_DELAY } from '@/constants'
 import fetchCC from '@/fetchCC'
 import BrokerPicker from '@/components/BrokerPicker'
+import SegmentedControl from '@/components/SegmentedControl'
+import GoalPicker from '@/components/GoalPicker'
 
 const EMPTY_OPTIONS = () => ({ goals: [], destination_broker_ids: [], included_topics: '', excluded_topics: '' })
 
@@ -100,7 +76,9 @@ export default {
   },
   components: {
     OptimizationResult,
-    BrokerPicker
+    BrokerPicker,
+    SegmentedControl,
+    GoalPicker
   },
   data () {
     return {
@@ -114,6 +92,7 @@ export default {
       asyncRetryTimer: null,
       rebalanceDisk: false,
       showOptions: false,
+      kindOptions: [{ value: false, label: 'Brokers', title: 'Inter-broker proposals' }, { value: true, label: 'Disks', title: 'Intra Broker Rebalance Disk Proposal: between the disks of each broker' }],
       options: EMPTY_OPTIONS(), // being edited
       applied: EMPTY_OPTIONS(), // part of the URL
       result: {},
@@ -145,6 +124,11 @@ export default {
     }
   },
   computed: {
+    // how many options the shown proposals were asked with
+    appliedCount () {
+      const a = this.applied
+      return (a.goals.length ? 1 : 0) + (a.destination_broker_ids.length ? 1 : 0) + (a.included_topics ? 1 : 0) + (a.excluded_topics ? 1 : 0)
+    },
     taskId () {
       return this.$store.getters.getTaskId(this.url)
     },
@@ -159,8 +143,9 @@ export default {
       // loadBeforeOptimization is removed and is available only when
       // we pass verbose=true flag
       const params = { rebalance_disk: this.rebalanceDisk, verbose: true }
-      // goals run in the listed order (their priority), not in the order they were ticked
-      if (this.applied.goals.length) params.goals = this.pickableGoals.map(g => g.goal).filter(g => this.applied.goals.includes(g))
+      // goals run in the order they were ticked (their priority)
+      const picked = this.applied.goals.filter(g => this.pickableGoals.some(x => x.goal === g))
+      if (picked.length) params.goals = picked
       if (this.applied.destination_broker_ids.length) params.destination_broker_ids = this.applied.destination_broker_ids.join(',')
       if (this.applied.included_topics) params.included_topics = this.applied.included_topics
       if (this.applied.excluded_topics) params.excluded_topics = this.applied.excluded_topics
@@ -168,6 +153,11 @@ export default {
     }
   },
   methods: {
+    setKind (disk) {
+      if (disk === this.rebalanceDisk) return
+      this.rebalanceDisk = disk
+      this.onRebalanceDisk()
+    },
     onRebalanceDisk () {
       // goals of the other mode are not accepted
       this.options.goals = []

@@ -4,7 +4,7 @@
   <div v-if="goal.clusterModelStats">
   <!-- intra-broker goals leave the load of every broker unchanged: only their disk-level stats are relevant (as in CC's text view) -->
   <template v-if="!diskLevelOnly">
-  <table class="table table-sm table-bordered table-fixed">
+  <table v-if="!hideMetadata" class="table table-sm table-bordered table-fixed">
     <thead class='thead-light'>
       <tr>
         <th>Brokers</th>
@@ -36,13 +36,13 @@
     <tbody>
       <tr v-for='(v, k) in goal.clusterModelStats.statistics' :key="k">
         <th>{{ k }}</th>
-        <td :class="changeClass(k, 'disk')" :title="previousTitle(k, 'disk', 'formatUnits')">{{ v.disk | formatUnits }}</td>
+        <td :class="changeClass(k, 'disk')" :title="previousTitle(k, 'disk', 'formatUnits')"><value-cell :text="$options.filters.formatUnits(v.disk)" /></td>
         <td :class="changeClass(k, 'replicas')" :title="previousTitle(k, 'replicas')">{{ count(v.replicas) }}</td>
         <td :class="changeClass(k, 'cpu')" :title="previousTitle(k, 'cpu')">{{ count(v.cpu) }}</td>
-        <td :class="changeClass(k, 'networkOutbound')" :title="previousTitle(k, 'networkOutbound', 'formatNetworkUnits')">{{ v.networkOutbound | formatNetworkUnits }}</td>
-        <td :class="changeClass(k, 'networkInbound')" :title="previousTitle(k, 'networkInbound', 'formatNetworkUnits')">{{ v.networkInbound | formatNetworkUnits }}</td>
+        <td :class="changeClass(k, 'networkOutbound')" :title="previousTitle(k, 'networkOutbound', 'formatNetworkUnits')"><value-cell :text="$options.filters.formatNetworkUnits(v.networkOutbound)" /></td>
+        <td :class="changeClass(k, 'networkInbound')" :title="previousTitle(k, 'networkInbound', 'formatNetworkUnits')"><value-cell :text="$options.filters.formatNetworkUnits(v.networkInbound)" /></td>
         <td :class="changeClass(k, 'topicReplicas')" :title="previousTitle(k, 'topicReplicas')">{{ count(v.topicReplicas) }}</td>
-        <td :class="changeClass(k, 'potentialNwOut')" :title="previousTitle(k, 'potentialNwOut', 'formatNetworkUnits')">{{ v.potentialNwOut | formatNetworkUnits }}</td>
+        <td :class="changeClass(k, 'potentialNwOut')" :title="previousTitle(k, 'potentialNwOut', 'formatNetworkUnits')"><value-cell :text="$options.filters.formatNetworkUnits(v.potentialNwOut)" /></td>
       </tr>
     </tbody>
   </table>
@@ -71,7 +71,9 @@ export default {
     // the clusterModelStats after the previous goal, if any
     previous: { type: Object, default: null },
     // the disk statistics to compare this goal's with: the previous goal's, or the ones before the optimization
-    diskReference: { type: Object, default: null }
+    diskReference: { type: Object, default: null },
+    // the brokers / replicas / topics table (the same for every goal of a result: the result shows it once)
+    hideMetadata: Boolean
   },
   computed: {
     diskLevelOnly () {

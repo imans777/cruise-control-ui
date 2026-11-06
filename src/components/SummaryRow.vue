@@ -1,7 +1,8 @@
 <template>
-  <tr>
+  <!-- the row opens the cluster's state page -->
+  <tr class="summary-row" title="Open this cluster" @click="$router.push('/' + group + '/' + cluster + '/kafka_cluster_state')">
     <td>{{ group }}</td>
-    <td>{{ cluster }}</td>
+    <td><router-link :to="'/' + group + '/' + cluster + '/kafka_cluster_state'" @click.native.stop>{{ cluster }}</router-link></td>
     <td colspan=5 v-if='!loaded && loading'>
       <div class="spinner-border spinner-border-sm text-primary" role="status"></div> Loading ...
     </td>
@@ -16,7 +17,7 @@
       <td>{{ stats_leaders }}</td>
       <td>{{ stats_replicas }}</td>
       <td>{{ stats_leaders > 0 ? Number(stats_replicas / stats_leaders).toFixed(2) : 'N/A' }}</td>
-      <td>{{ stats_outofsync }}</td>
+      <td :class="stats_outofsync > 0 ? 'text-danger font-weight-bold' : null">{{ stats_outofsync }}</td>
     </template>
   </tr>
 </template>
@@ -163,3 +164,7 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.summary-row { cursor: pointer; }
+</style>

@@ -1,11 +1,9 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <template>
   <div>
-    <div class="alert alert-info" v-if='!hideHelperURL'>
-      <b>URL ({{group}}, {{cluster}}):</b> <a target=_blank :href='url'>{{ url }}</a>
-    </div>
-    <div class="alert alert-primary text-right">
-      <button class="btn btn-primary" :disabled='loading' @click='getState()'>Refresh Analyzer State</button>
+    <request-url :url="url" />
+    <div v-sticky class="toolbar">
+      <refresh-button label="Refresh Analyzer State" :loading="loading" @click="getState()" />
       <auto-refresh v-model='autoRefreshMs' class="ml-1" />
     </div>
     <div v-if='error'>
@@ -15,18 +13,19 @@
       <async-task :asyncData='asyncData'></async-task>
     </div>
     <div v-else-if='!loaded && loading'>
-      <div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div> Loading ...</div>
+      <loading-state />
     </div>
     <div v-else>
-      <div class="card-deck mb-3">
-        <div class='card text-center'>
-          <div class='card-header'>Analyzer</div>
-          <div class='card-body'>
-            <p class="card-text">
-              <span :class="['badge', AnalyzerState.isProposalReady ? 'badge-success' : 'badge-info']">{{ !AnalyzerState.isProposalReady ? 'PROPOSAL_NOT_READY' : 'PROPOSALS_READY' }}</span>
-            </p>
-          </div>
-        </div>
+      <div class="stat-grid cols-4">
+        <stat-tile label="Analyzer" icon="bi-lightbulb" :tone="AnalyzerState.isProposalReady ? 'success' : 'info'">
+          <span :class="['badge', AnalyzerState.isProposalReady ? 'badge-success' : 'badge-info']">{{ !AnalyzerState.isProposalReady ? 'PROPOSAL_NOT_READY' : 'PROPOSALS_READY' }}</span>
+        </stat-tile>
+        <stat-tile v-if="AnalyzerState.goalReadiness.length" label="Goals Ready" icon="bi-bullseye" :tone="readyGoals === AnalyzerState.goalReadiness.length ? 'success' : 'warning'">
+          {{ readyGoals }} <small class="text-muted">/ {{ AnalyzerState.goalReadiness.length }}</small>
+          <template #sub>
+            <div class="progress"><div :class="['progress-bar', readyGoals === AnalyzerState.goalReadiness.length ? 'bg-success' : null]" :style="{ width: (readyGoals / AnalyzerState.goalReadiness.length * 100) + '%' }"></div></div>
+          </template>
+        </stat-tile>
       </div>
       <div>
         <div v-if='AnalyzerState.goalReadiness.length > 0'>
@@ -36,7 +35,7 @@
                 <th>Goal</th>
                 <th>Status</th>
                 <th>Include All Topics</th>
-                <th>Min Monitored Partition %</th>
+                <th title="The share of the partitions the goal needs monitored before it can run">Min Monitored Partitions <i class="bi bi-question-circle help-icon"></i></th>
                 <th>Required Snapshots</th>
               </tr>
             </thead>
@@ -45,7 +44,7 @@
                 <td>{{ r.name }}</td>
                 <td><boolean-el :label='r.status' /></td>
                 <td><boolean-el :label='r.modelCompleteRequirement.includeAllTopics' /></td>
-                <td>{{ r.modelCompleteRequirement.minMonitoredPartitionsPercentage }}</td>
+                <td><value-cell :value="r.modelCompleteRequirement.minMonitoredPartitionsPercentage" :text="(Number(r.modelCompleteRequirement.minMonitoredPartitionsPercentage) * 100).toFixed(0) + ' %'" /></td>
                 <td>{{ r.modelCompleteRequirement.requiredNumSnapshots }}</td>
               </tr>
             </tbody>
@@ -112,6 +111,10 @@ export default {
     }
   },
   computed: {
+    // the goals whose status is ready (as BooleanEL reads it)
+    readyGoals () {
+      return this.AnalyzerState.goalReadiness.filter(r => r.status === true || (typeof r.status === 'string' && /^ready/i.test(r.status))).length
+    },
     hideHelperURL () {
       return this.$store.state.hideHelperURL
     },

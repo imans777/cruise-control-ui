@@ -1,6 +1,7 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <template>
-  <span :class='className' v-if='isTrue'>{{ label }}</span>
+  <!-- true / "ready...": a green badge; anything else: the value, muted (it was left blank) -->
+  <span :class='className'>{{ label === undefined || label === null || label === '' ? '—' : String(label) }}</span>
 </template>
 
 <script>
@@ -11,10 +12,10 @@ export default {
   },
   computed: {
     isTrue () {
-      return this.label === true || (this.label !== false && this.label.match(/^ready/i))
+      return this.label === true || (typeof this.label === 'string' && /^ready/i.test(this.label))
     },
     className () {
-      return this.isTrue ? 'badge badge-success' : 'badge badge-secondary'
+      return this.isTrue ? 'badge badge-success' : 'badge badge-light'
     }
   }
 }
