@@ -12,7 +12,7 @@
           <thead class="thead-light"><tr><th>Broker</th><th v-for="c in columns" :key="c.key">{{ c.label }}</th></tr></thead>
           <tbody>
             <tr v-for="r in filteredRows" :key="r.broker" :class="isOdd(r) ? 'table-warning' : null">
-              <td>{{ r.broker }}</td>
+              <td><span :class="['id-pill', { hit: parsedFilter.hitId(r.broker) }]">{{ r.broker }}</span></td>
               <td v-for="c in columns" :key="c.key" :title="Number(r.values[c.key]).toLocaleString() + ' bytes/s'">{{ r.values[c.key] | formatBytesRate }}</td>
             </tr>
           </tbody>
@@ -59,9 +59,11 @@ export default {
       this.allValues.forEach(r => { count[r] = (count[r] || 0) + 1 })
       return Number(Object.keys(count).sort((a, b) => count[b] - count[a])[0])
     },
+    parsedFilter () {
+      return parseFilter(this.filter)
+    },
     filteredRows () {
-      const f = parseFilter(this.filter)
-      return this.rows.filter(r => matchesFilter(f, [r.broker], []))
+      return this.rows.filter(r => matchesFilter(this.parsedFilter, [r.broker], []))
     }
   },
   methods: {

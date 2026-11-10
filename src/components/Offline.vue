@@ -1,7 +1,7 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <template>
   <div class="alert alert-warning" v-if='!isOnline()'>
-    <b>NOTICE:</b> Hi there ! You are disconnected from Network. Application still shows the most recent data that was loaded from the server.
+    <i class="bi bi-wifi-off mr-1"></i> <b>Offline.</b> The pages show the last data loaded; they update once the network is back.
   </div>
 </template>
 

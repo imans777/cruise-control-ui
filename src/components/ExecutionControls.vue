@@ -3,8 +3,8 @@
      Collapsed by default: the header summarizes them. -->
 <template>
   <div class="card mb-3">
-    <div class="card-header pointer" @click="open = !open">
-      {{ open ? '▼' : '▶' }} Throttles, Concurrency &amp; Live Controls
+    <div :class="['card-header', 'collapse-title', { open }]" @click="open = !open">
+      <i class="bi bi-chevron-right chev"></i> Throttles, Concurrency &amp; Live Controls
       <small class="ml-2 header-summary">
         Replication: <b>{{ replicationSummary }}</b>
         <template v-if="logDirRows.length"> &middot; Log dir: <b>{{ logDirSummary }}</b></template>
@@ -23,7 +23,7 @@
                 <per-broker-rates :rows="replicationRows" :columns="leaderFollower" />
                 <span v-if="replicationPaused" class="badge badge-warning ml-1">paused</span>
                 <div v-if="replicationThrottle !== null && replicationThrottle !== undefined" class="small text-muted" title="The rate of the brokers the adjuster has not adjusted (yet). In an execution started without replication_throttle, the adjuster's maximum.">
-                  base rate: {{ replicationThrottle | formatBytesRate }} ❓
+                  base rate: {{ replicationThrottle | formatBytesRate }} <i class="bi bi-question-circle help-icon"></i>
                 </div>
               </template>
               <template v-else-if="replicationThrottle !== null && replicationThrottle !== undefined">
@@ -45,16 +45,16 @@
       </table>
 
       <div class="form-row align-items-start mb-2">
-        <label class="col-md-3 col-form-label-sm" title="The replication throttle of this execution's inter-broker movements. Pause sets it to 0: throttled moves halt until it is changed again. Remove is refused while the throttle adjuster is on.">Replication Throttle ❓</label>
+        <label class="col-md-3 col-form-label-sm" title="The replication throttle of this execution's inter-broker movements. Pause sets it to 0: throttled moves halt until it is changed again. Remove is refused while the throttle adjuster is on.">Replication Throttle <i class="bi bi-question-circle help-icon"></i></label>
         <div class="col-md-3"><throttle-input v-model="replicationThrottleInput" placeholder="new rate" /></div>
         <div class="col-md-6">
           <button class="btn btn-sm btn-primary" :disabled="busy || replicationThrottleInput === null" @click="send({ replication_throttle: replicationThrottleInput })">Set</button>
-          <button class="btn btn-sm btn-warning ml-1" :disabled="busy" @click="send({ replication_throttle: 0 })">Pause (0)</button>
+          <button class="btn btn-sm btn-outline-warning ml-1" :disabled="busy" @click="send({ replication_throttle: 0 })">Pause (0)</button>
           <button class="btn btn-sm btn-outline-danger ml-1" :disabled="busy" @click="send({ replication_throttle: 'null' })">Remove</button>
         </div>
       </div>
       <div class="form-row align-items-start mb-2">
-        <label class="col-md-3 col-form-label-sm" title="The log-dir throttle of this execution's intra-broker movements, on every broker with such movements. Remove restores the value each broker had before.">Log Dir Throttle ❓</label>
+        <label class="col-md-3 col-form-label-sm" title="The log-dir throttle of this execution's intra-broker movements, on every broker with such movements. Remove restores the value each broker had before.">Log Dir Throttle <i class="bi bi-question-circle help-icon"></i></label>
         <div class="col-md-3"><throttle-input v-model="logDirThrottleInput" :min="1" placeholder="new rate" /></div>
         <div class="col-md-6">
           <button class="btn btn-sm btn-primary" :disabled="busy || !logDirThrottleInput" @click="send({ log_dir_throttle: logDirThrottleInput })">Set</button>
@@ -62,26 +62,26 @@
         </div>
       </div>
       <div class="form-row align-items-start mb-3">
-        <label class="col-md-3 col-form-label-sm" title="Global switch of the concurrency adjuster's replication throttle adjustment (a restart reverts it to concurrency.adjuster.replication.throttle.enabled). Turning it off keeps the throttle at its last value, or the one you set, for the rest of the execution. CC does not report whether it is on; the response shows before/after.">Throttle Adjuster ❓</label>
+        <label class="col-md-3 col-form-label-sm" title="Global switch of the concurrency adjuster's replication throttle adjustment (a restart reverts it to concurrency.adjuster.replication.throttle.enabled). Turning it off keeps the throttle at its last value, or the one you set, for the rest of the execution. CC does not report whether it is on; the response shows before/after.">Throttle Adjuster <i class="bi bi-question-circle help-icon"></i></label>
         <div class="col-md-9">
-          <button class="btn btn-sm btn-success" :disabled="busy" @click="send({ replication_throttle_adjustment: true })">Enable</button>
+          <button class="btn btn-sm btn-outline-success" :disabled="busy" @click="send({ replication_throttle_adjustment: true })">Enable</button>
           <button class="btn btn-sm btn-outline-secondary ml-1" :disabled="busy" @click="send({ replication_throttle_adjustment: false })">Disable</button>
         </div>
       </div>
 
-      <h6 title="CC reports the current concurrency only while that kind of movement runs, and never whether an adjuster is on: the responses show before/after.">Concurrency ❓</h6>
+      <h6 title="CC reports the current concurrency only while that kind of movement runs, and never whether an adjuster is on: the responses show before/after.">Concurrency <i class="bi bi-question-circle help-icon"></i></h6>
       <table class="table table-sm table-bordered mb-2 concurrency">
         <thead class="thead-light">
           <tr>
             <th>Movements</th>
-            <th title="Per broker: one value when every broker has the same, otherwise min to max (avg)">Now ❓</th>
+            <th title="Per broker: one value when every broker has the same, otherwise min to max (avg)">Now <i class="bi bi-question-circle help-icon"></i></th>
             <th>Change To</th>
-            <th title="The concurrency adjuster raises or lowers this concurrency by broker metrics during the execution">Adjuster ❓</th>
+            <th title="The concurrency adjuster raises or lowers this concurrency by broker metrics during the execution">Adjuster <i class="bi bi-question-circle help-icon"></i></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="c in concurrencyRows" :key="c.key">
-            <th :title="c.help">{{ c.label }}<template v-if="c.help"> ❓</template></th>
+            <th :title="c.help">{{ c.label }}<template v-if="c.help"> <i class="bi bi-question-circle help-icon"></i></template></th>
             <td>
               <span v-if="c.now !== null">{{ c.now }}</span>
               <span v-else class="text-muted" :title="c.reported ? 'Reported only while such movements run' : 'CC does not report it'">{{ c.reported ? '—' : 'not reported' }}</span>
@@ -96,7 +96,7 @@
             </td>
             <td>
               <template v-if="c.adjuster">
-                <button class="btn btn-sm btn-success" :disabled="busy" @click="send({ enable_concurrency_adjuster_for: c.adjuster })">Enable</button>
+                <button class="btn btn-sm btn-outline-success" :disabled="busy" @click="send({ enable_concurrency_adjuster_for: c.adjuster })">Enable</button>
                 <button class="btn btn-sm btn-outline-secondary ml-1" :disabled="busy" @click="send({ disable_concurrency_adjuster_for: c.adjuster })">Disable</button>
               </template>
               <span v-else class="small text-muted">{{ c.noAdjuster }}</span>
@@ -105,14 +105,14 @@
         </tbody>
       </table>
       <div class="form-row align-items-start mb-2">
-        <label class="col-md-3 col-form-label-sm" title="min_isr_based_concurrency_adjustment: the adjuster also lowers the concurrency when partitions are (At/Under)MinISR">MinISR-Based Adjustment ❓</label>
+        <label class="col-md-3 col-form-label-sm" title="min_isr_based_concurrency_adjustment: the adjuster also lowers the concurrency when partitions are (At/Under)MinISR">MinISR-Based Adjustment <i class="bi bi-question-circle help-icon"></i></label>
         <div class="col-md-9">
-          <button class="btn btn-sm btn-success" :disabled="busy" @click="send({ min_isr_based_concurrency_adjustment: true })">Enable</button>
+          <button class="btn btn-sm btn-outline-success" :disabled="busy" @click="send({ min_isr_based_concurrency_adjustment: true })">Enable</button>
           <button class="btn btn-sm btn-outline-secondary ml-1" :disabled="busy" @click="send({ min_isr_based_concurrency_adjustment: false })">Disable</button>
         </div>
       </div>
       <div class="form-row align-items-start mb-2">
-        <label class="col-md-3 col-form-label-sm" title="execution_progress_check_interval_ms: how often the executor checks the movements, which is also how often the adjusters act. The floor is min.execution.progress.check.interval.ms (5000 by default).">Progress Check Interval ❓</label>
+        <label class="col-md-3 col-form-label-sm" title="execution_progress_check_interval_ms: how often the executor checks the movements, which is also how often the adjusters act. The floor is min.execution.progress.check.interval.ms (5000 by default).">Progress Check Interval <i class="bi bi-question-circle help-icon"></i></label>
         <div class="col-md-3">
           <div class="input-group input-group-sm">
             <input v-model.number="progressCheckIntervalInput" type="number" min="1" class="form-control" placeholder="new value">

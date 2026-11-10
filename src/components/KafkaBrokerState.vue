@@ -19,18 +19,18 @@
       </thead>
       <tbody>
         <tr v-for='(v, bid) in state.ReplicaCountByBrokerId' :key="bid">
-          <td>{{ bid }}</td>
-          <td>{{ v }}</td>
-          <td :class='!state.LeaderCountByBrokerId[bid] ? "table-danger" : null'>{{ state.LeaderCountByBrokerId[bid] || 0 }}</td>
-          <td>{{ state.OutOfSyncCountByBrokerId[bid] || 0 }}</td>
+          <td><span class="id-pill">{{ bid }}</span></td>
+          <td><value-cell :value="v" /></td>
+          <td :class='!state.LeaderCountByBrokerId[bid] ? "table-danger" : null'><value-cell :value="state.LeaderCountByBrokerId[bid] || 0" /></td>
+          <td :class="state.OutOfSyncCountByBrokerId[bid] ? 'text-danger font-weight-bold' : 'muted-zero'">{{ state.OutOfSyncCountByBrokerId[bid] || 0 }}</td>
           <template v-if='state.OfflineReplicaCountByBrokerId'>
-          <td :class='state.OfflineReplicaCountByBrokerId[bid] ? "table-danger" : null'>
+          <td :class='state.OfflineReplicaCountByBrokerId[bid] ? "table-danger" : "muted-zero"'>
             {{ state.OfflineReplicaCountByBrokerId[bid] ? state.OfflineReplicaCountByBrokerId[bid] : 0 }}
           </td>
           <td>
             {{ state.OnlineLogDirsByBrokerId[bid] ? state.OnlineLogDirsByBrokerId[bid].length : 0 }}
           </td>
-          <td :class='state.OfflineLogDirsByBrokerId[bid] && state.OfflineLogDirsByBrokerId[bid].length > 0 ? "table-danger" : null'>
+          <td :class='state.OfflineLogDirsByBrokerId[bid] && state.OfflineLogDirsByBrokerId[bid].length > 0 ? "table-danger" : "muted-zero"'>
             {{ state.OfflineLogDirsByBrokerId[bid] ? state.OfflineLogDirsByBrokerId[bid].length : 0 }}
           </td>
           </template>

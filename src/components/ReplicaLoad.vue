@@ -1,9 +1,7 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <template>
   <div>
-    <div class="alert alert-info" v-if='!hideHelperURL'>
-      <b>URL ({{group}}, {{cluster}}):</b> <a target=_blank :href='url'>{{ url }}</a>
-    </div>
+    <request-url :url="url" />
     <div>
       <div class="alert alert-primary">
         <b>Note:</b> Depending on the size of the kafka cluster, this request can generate load on Cruise Control and can even crash it.<hr>
@@ -17,7 +15,7 @@
       <async-task :asyncData='asyncData'></async-task>
     </div>
     <div v-else-if="!loaded && loading">
-      <div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div> Loading ...</div>
+      <loading-state />
     </div>
     <div v-else-if="loaded && loading">
       Fetching New Data ...

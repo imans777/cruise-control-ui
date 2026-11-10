@@ -32,3 +32,8 @@ export const EXECUTION_STATES = [
   'LEADER_MOVEMENT_TASK_IN_PROGRESS',
   'STOPPING_EXECUTION'
 ]
+
+// An execution queued after the ongoing one of the same user task (queuedExecution, e.g. by queue_rebalance_disk), in words
+export function queuedExecutionLabel (type) {
+  return { REBALANCE_DISK: 'disk rebalance' }[type] || type
+}

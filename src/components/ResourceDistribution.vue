@@ -1,59 +1,10 @@
 <template>
   <div>
-    <h1 class="text-center">
-      Cluster {{ cluster }} ({{ group }})
-    </h1>
-    <h2 class="text-center">
-      {{ resource }} distribution across brokers per topic
-    </h2>
-
-    <div class="col-5 mx-auto">
-      <div class="row">
-        <div class="col-8 mx-auto my-auto">
-          <input
-            type="text"
-            class="form-control"
-            v-model="filter"
-            placeholder="filter topics.."
-            :disabled="stacked"
-          />
-        </div>
-        <div class="col-4">
-          <div class="form-check">
-            <input
-              v-model="stacked"
-              type="checkbox"
-              class="form-check-input"
-              id="stackedCheckBox"
-            />
-            <label class="form-check-label" for="stackedCheckBox">
-              Stacked view
-            </label>
-          </div>
-          <div class="dropdown">
-            <button
-              class="btn btn-outline-primary btn-sm dropdown-toggle"
-              type="button"
-              data-toggle="dropdown"
-              aria-haspopup="true"
-              aria-expanded="false"
-            >
-              display: {{ resource }}
-            </button>
-            <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
-              <a class="dropdown-item" @click.prevent="setResource('leaders')"
-                >Leaders</a
-              >
-              <a class="dropdown-item" @click.prevent="setResource('replicas')"
-                >Replicas</a
-              >
-              <a class="dropdown-item" @click.prevent="setResource('cpu')"
-                >CPU</a
-              >
-            </div>
-          </div>
-        </div>
-      </div>
+    <div class="rd-toolbar">
+      <h4 class="mb-0 mr-auto">{{ resourceOptions.find(o => o.value === resource).label }} of each topic, per broker</h4>
+      <input type="text" class="form-control form-control-sm rd-filter" v-model="filter" placeholder="Filter topics" :disabled="stacked" :title="stacked ? 'The stacked view shows every topic' : null">
+      <segmented-control v-model="resource" :options="resourceOptions" aria-label="Resource" />
+      <label class="chip-check"><input type="checkbox" v-model="stacked"> Stacked view</label>
     </div>
 
     <div v-if="error">
@@ -103,6 +54,7 @@
 
 <script>
 import LineChart from '@/components/LineChart.vue'
+import SegmentedControl from '@/components/SegmentedControl'
 import { ARGS_RETRY_MAX, ARGS_RETRY_DELAY } from '@/constants'
 import fetchCC from '@/fetchCC'
 
@@ -168,7 +120,8 @@ class Topic {
 export default {
   name: 'ResourceDistributionChart',
   components: {
-    LineChart
+    LineChart,
+    SegmentedControl
   },
 
   props: {
@@ -179,6 +132,7 @@ export default {
   data () {
     return {
       resource: 'leaders',
+      resourceOptions: [{ value: 'leaders', label: 'Leaders' }, { value: 'replicas', label: 'Replicas' }, { value: 'cpu', label: 'CPU' }],
       stacked: false,
       filter: '',
       cachedKccData: [],
@@ -274,7 +228,9 @@ export default {
       return {
         datasets: [{
           data: [...Object.values(resources)],
-          backgroundColor: 'rgba(7, 66, 160, 0.5)'
+          backgroundColor: 'rgba(129, 140, 248, 0.55)',
+          borderColor: 'rgba(129, 140, 248, 0.95)',
+          borderWidth: 1
         }],
         labels: [...Object.keys(resources)].map(e => 'broker ' + e)
       }
@@ -291,7 +247,9 @@ export default {
         scales: {
           yAxes: [{
             ticks: {
-              beginAtZero: true
+              beginAtZero: true,
+              // counts are whole numbers
+              precision: this.resource === 'cpu' ? undefined : 0
             },
             scaleLabel: {
               labelString: this.resource === 'cpu' ? '% cpu' : `nb ${this.resource}`,
@@ -357,3 +315,8 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.rd-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 1rem; }
+.rd-filter { width: 240px; }
+</style>

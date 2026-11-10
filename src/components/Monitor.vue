@@ -1,13 +1,25 @@
 <!-- Copyright 2017-2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information. -->
 <template>
   <div>
-    <div class="alert alert-info" v-if='!hideHelperURL'>
-      <b>URL ({{group}}, {{cluster}}):</b> <a target=_blank :href='url'>{{ url }}</a>
-    </div>
-    <div class="alert alert-primary text-right">
-      <button class="btn btn-primary" :disabled='loading' @click='bootstrapMetrics()'>Bootstrap Metrics</button>
-      <button class="btn btn-primary" :disabled='loading' @click='getState()'>Refresh Monitor SubState</button>
+    <request-url :url="url" />
+    <div v-sticky class="toolbar">
+      <button class="btn btn-sm btn-outline-danger" :disabled='loading' title="Clear the load monitor's metric samples and load them again" @click='confirmBootstrap = true'><i class="bi bi-arrow-counterclockwise"></i> Bootstrap Metrics…</button>
+      <refresh-button label="Refresh Monitor SubState" :loading="loading" @click="getState()" />
       <auto-refresh v-model='autoRefreshMs' class="ml-1" />
+    </div>
+    <!-- bootstrapping drops the samples the load monitor holds: asked first -->
+    <div v-if="confirmBootstrap" class="alert alert-danger confirm-box">
+      <b><i class="bi bi-exclamation-triangle"></i> Bootstrap the load monitor?</b>
+      Cruise Control drops the metric samples it holds and loads them again from the sample store (clearmetrics=true, start=0).
+      Until it is done the load model is incomplete, and proposals may fail.
+      <div class="mt-2">
+        <button class="btn btn-danger btn-sm" @click="confirmBootstrap = false; bootstrapMetrics()">Bootstrap now</button>
+        <button class="btn btn-outline-secondary btn-sm ml-1" @click="confirmBootstrap = false">Cancel</button>
+      </div>
+    </div>
+    <div v-if="bootstrapNote" class="alert alert-success alert-dismissible">
+      {{ bootstrapNote }}
+      <button type="button" class="close" @click="bootstrapNote = ''">&times;</button>
     </div>
     <div v-if='error'>
       <exception :exception='errorData'></exception>
@@ -16,53 +28,34 @@
       <async-task :asyncData='asyncData'></async-task>
     </div>
     <div v-else-if='!loaded && loading'>
-      <div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div> Loading ...</div>
+      <loading-state />
     </div>
     <div v-else>
-      <div class="card-deck mb-3">
-        <div class="card text-center">
-          <div class="card-header">Monitor</div>
-          <div class="card-body  align-items-center d-flex justify-content-center">
-            <p class="card-text" v-if='MonitorState.state == "LOADING"'><span class="badge badge-info">{{ MonitorState.state }} ({{ MonitorState.loadingProgressPct != null ? MonitorState.loadingProgressPct.toFixed(2) : '0.00' }})</span></p>
-            <p class="card-text" v-else>
-              <span :class="monitor_class">{{ MonitorState.state }}</span>
-              <a class='pointer' @click.prevent='doAction()' :title='monitor_title'>&#x23ef;</a>
-            </p>
-          </div>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Training</div>
-          <div class="card-body  align-items-center d-flex justify-content-center">
-            <span :class="['badge', MonitorState.trained === true ? 'badge-success': 'badge-info']">{{ MonitorState.trained === true ? 'TRAINED' : 'TRAINING' }} ({{ MonitorState.trainingPct != null ? MonitorState.trainingPct.toFixed(2) : '0.00' }} %)</span>
-          </div>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Snapshots</div>
-          <div class="card-body">
-            <div class="card-text"><h1 :class="[MonitorState.numMonitoredWindows < 1 ? 'text-info' : 'text-success']">{{ MonitorState.numMonitoredWindows }}</h1></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card-deck mb-3">
-        <div class="card text-center">
-          <div class="card-header">Total Kafka Partitions</div>
-          <div class="card-body">
-            <div class="card-text"><h1 :class="['text-center', MonitorState.numTotalPartitions < 1 ? 'text-info' : 'text-success']">{{ MonitorState.numTotalPartitions | formatNumber }}</h1></div>
-          </div>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Valid Kafka Partitions</div>
-          <div class="card-body">
-            <div class="card-text"><h1 :class="['text-center', MonitorState.numValidPartitions != MonitorState.numTotalPartitions ? 'text-info' : 'text-success']">{{ MonitorState.numValidPartitions | formatNumber }}</h1></div>
-          </div>
-        </div>
-        <div class="card text-center">
-          <div class="card-header">Flawed Kafka Partitions</div>
-          <div class="card-body">
-            <div class="card-text"><h1 :class="['text-center', MonitorState.numFlawedPartitions < 1 ? 'text-success' : 'text-info']">{{ MonitorState.numFlawedPartitions | formatNumber }}</h1></div>
-          </div>
-        </div>
+      <div class="stat-grid">
+        <stat-tile label="Monitor" icon="bi-activity" :tone="MonitorState.state === 'RUNNING' ? 'success' : MonitorState.state === 'STOPPED' ? 'danger' : MonitorState.state === 'PAUSED' ? null : 'info'">
+          <span v-if='MonitorState.state == "LOADING"' class="badge badge-info">{{ MonitorState.state }}</span>
+          <template v-else>
+            <span :class="monitor_class">{{ MonitorState.state }}</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary ml-1 py-0 monitor-action" @click='doAction()' :title='monitor_title'>
+              <i :class="['bi', MonitorState.state === 'PAUSED' ? 'bi-play-fill' : 'bi-pause-fill']"></i> {{ MonitorState.state === 'PAUSED' ? 'Resume' : 'Pause' }}
+            </button>
+          </template>
+          <template v-if='MonitorState.state == "LOADING"' #sub>
+            <div class="d-flex justify-content-between"><span>loading</span><span>{{ MonitorState.loadingProgressPct != null ? MonitorState.loadingProgressPct.toFixed(2) : '0.00' }} %</span></div>
+            <div class="progress"><div class="progress-bar bg-info" :style="{ width: (MonitorState.loadingProgressPct || 0) + '%' }"></div></div>
+          </template>
+        </stat-tile>
+        <stat-tile label="Training" icon="bi-mortarboard" :tone="MonitorState.trained === true ? 'success' : 'info'">
+          <span :class="['badge', MonitorState.trained === true ? 'badge-success': 'badge-info']">{{ MonitorState.trained === true ? 'TRAINED' : 'TRAINING' }}</span>
+          <template #sub>
+            <div class="d-flex justify-content-between"><span>progress</span><span>{{ MonitorState.trainingPct != null ? MonitorState.trainingPct.toFixed(2) : '0.00' }} %</span></div>
+            <div class="progress"><div :class="['progress-bar', MonitorState.trained === true ? 'bg-success' : null]" :style="{ width: (MonitorState.trainingPct || 0) + '%' }"></div></div>
+          </template>
+        </stat-tile>
+        <stat-tile label="Snapshots" icon="bi-camera" :tone="MonitorState.numMonitoredWindows < 1 ? 'info' : 'success'" :value="MonitorState.numMonitoredWindows" sub="monitored windows" />
+        <stat-tile label="Total Kafka Partitions" icon="bi-grid-3x3-gap" :tone="MonitorState.numTotalPartitions < 1 ? 'info' : 'primary'" :value="MonitorState.numTotalPartitions | formatNumber" />
+        <stat-tile label="Valid Kafka Partitions" icon="bi-check2-circle" :tone="MonitorState.numValidPartitions != MonitorState.numTotalPartitions ? 'info' : 'success'" :value="MonitorState.numValidPartitions | formatNumber" :sub="MonitorState.numTotalPartitions > 0 ? (MonitorState.numValidPartitions / MonitorState.numTotalPartitions * 100).toFixed(1) + '% of total' : null" />
+        <stat-tile label="Flawed Kafka Partitions" icon="bi-exclamation-diamond" :tone="MonitorState.numFlawedPartitions < 1 ? 'success' : 'warning'" :value="MonitorState.numFlawedPartitions | formatNumber" />
       </div>
     </div>
   </div>
@@ -86,6 +79,8 @@ export default {
   },
   data () {
     return {
+      confirmBootstrap: false,
+      bootstrapNote: '',
       loaded: false,
       loading: false,
       error: false,
@@ -223,13 +218,16 @@ export default {
     },
     bootstrapMetrics () {
       const vm = this
+      vm.bootstrapNote = ''
       fetchCC(vm.bootstrapUrl, { method: 'GET' }).then((result) => {
         if (result.type === 'error') {
           vm.error = true
-          vm.errorData = (result.data && result.data.errorMessage) || result.data
+          vm.errorData = result.data
         } else {
           vm.error = false
           vm.errorData = null
+          vm.bootstrapNote = 'Bootstrap started: the Monitor state shows its progress.'
+          vm.getState()
         }
       }).catch((e) => {
         vm.error = true

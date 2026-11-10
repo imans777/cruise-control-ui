@@ -14,10 +14,12 @@
           <tr><th>Reason</th><td class="response-value">{{ recovery.reason }}</td></tr>
           <tr><th>Triggered By</th><td>{{ recovery.triggeredByUserRequest ? 'user request' : 'self-healing' }}</td></tr>
           <tr><th>Started</th><td>{{ recovery.startTime }}</td></tr>
-          <tr><th>Interrupted</th><td>{{ recovery.interruptedTime }}</td></tr>
-          <tr><th>Resume Count</th><td>{{ recovery.resumeCount }}</td></tr>
+          <tr><th title="The last checkpoint of the execution's state: it is checkpointed at least every executor.state.checkpoint.interval.ms, so this is about when Cruise Control stopped">Interrupted (Last Checkpoint) <i class="bi bi-question-circle help-icon"></i></th><td>{{ recovery.interruptedTime }}</td></tr>
+          <tr><th title="Resumes in a row without completing a task; it starts over once a resumed execution completes a task (resume.interrupted.execution.max.count)">Resume Count <i class="bi bi-question-circle help-icon"></i></th><td>{{ recovery.resumeCount }}</td></tr>
           <tr v-if="recovery.reasonNotResumed"><th>Not Resumed Because</th><td class="response-value">{{ recovery.reasonNotResumed }}</td></tr>
-          <tr v-if="recovery.cleanupDeadline"><th>Cleanup Deadline</th><td>{{ recovery.cleanupDeadline }} <small class="text-muted">(in-flight reassignments still running then are cancelled)</small></td></tr>
+          <tr v-if="recovery.queuedExecutionNotResumed"><th>Queued, Not Resumed</th><td>The {{ queuedLabel }} queued after this execution (<code>{{ recovery.queuedExecutionNotResumed }}</code>): the restart could not queue it again (e.g. it was persisted without its parameters, or this execution is not resumed). Request it again once this execution is done.</td></tr>
+          <tr v-if="recovery.queuedExecutionResumed"><th>Queued, Resumed</th><td>The {{ queuedResumedLabel }} queued after this execution (<code>{{ recovery.queuedExecutionResumed }}</code>) is queued again: it starts once the resumed execution completes -- or now, if this execution had completed before the restart.</td></tr>
+          <tr v-if="recovery.cleanupDeadline"><th>Cleanup Deadline</th><td>{{ recovery.cleanupDeadline }} <small class="text-muted">(in-flight reassignments and log dir movements still running then are cancelled)</small></td></tr>
           <tr v-if="recovery.error"><th class="text-danger">Error</th><td class="text-danger response-value">{{ recovery.error }}</td></tr>
         </tbody>
       </table>
@@ -29,12 +31,16 @@
         <h6>In-Flight Partition Movements ({{ recovery.inFlightPartitionMovements.length }})</h6>
         <code v-for="p in recovery.inFlightPartitionMovements" :key="p" class="mr-2">{{ p }}</code>
       </div>
+      <div v-if="recovery.inFlightLogDirMovements && recovery.inFlightLogDirMovements.length" class="mb-2">
+        <h6 title="Log dir movements of the interrupted execution that Kafka is still copying: the cleanup waits for them (they keep their log dir throttle), and cancels them at the deadline or on a stop">In-Flight Log Dir Movements ({{ recovery.inFlightLogDirMovements.length }}) <i class="bi bi-question-circle help-icon"></i></h6>
+        <ul class="mb-0"><li v-for="p in recovery.inFlightLogDirMovements" :key="p" class="small"><code>{{ p }}</code></li></ul>
+      </div>
       <div v-if="recovery.keptThrottles && recovery.keptThrottles.length" class="mb-2">
-        <h6 title="Throttles set by someone else (kept), and brokers whose throttles are retained until they are reachable">Kept Throttles ❓</h6>
+        <h6 title="Throttles set by someone else (kept), and brokers whose throttles are retained until they are reachable">Kept Throttles <i class="bi bi-question-circle help-icon"></i></h6>
         <ul class="mb-0"><li v-for="(t, i) in recovery.keptThrottles" :key="i" class="small">{{ t }}</li></ul>
       </div>
       <div v-if="recovery.divergences && recovery.divergences.length">
-        <h6 title="Differences between the persisted execution and the cluster found at startup">Divergences ❓</h6>
+        <h6 title="Differences between the persisted execution and the cluster found at startup">Divergences <i class="bi bi-question-circle help-icon"></i></h6>
         <ul class="mb-0"><li v-for="(d, i) in recovery.divergences" :key="i" class="small">{{ d }}</li></ul>
       </div>
     </div>
@@ -42,12 +48,14 @@
 </template>
 
 <script>
+import { queuedExecutionLabel } from '@/ccOptions'
+
 const STATUS = {
   DECIDING: { color: 'info', help: 'Cruise Control is deciding whether to resume the interrupted execution or to clean it up.' },
   RESUMED: { color: 'success', help: 'The interrupted execution was resumed.' },
-  WAITING_FOR_IN_FLIGHT_MOVEMENTS: { color: 'warning', help: 'Waiting for the reassignments that were in flight at the restart to finish (until the cleanup deadline).' },
+  WAITING_FOR_IN_FLIGHT_MOVEMENTS: { color: 'warning', help: 'Waiting for the reassignments and log dir movements that were in flight at the restart to finish (until the cleanup deadline).' },
   WAITING_FOR_KAFKA: { color: 'warning', help: 'Waiting for Kafka to be reachable to clean up.' },
-  CANCELLING_IN_FLIGHT_MOVEMENTS: { color: 'warning', help: 'Cancelling the reassignments still in flight.' },
+  CANCELLING_IN_FLIGHT_MOVEMENTS: { color: 'warning', help: 'Cancelling the reassignments and log dir movements still in flight.' },
   REMOVING_THROTTLES: { color: 'warning', help: 'Removing the throttles the interrupted execution had set.' },
   CLEANED_UP: { color: 'success', help: 'The interrupted execution was cleaned up; nothing is left dangling.' },
   FAILED: { color: 'danger', help: 'The recovery failed; see the error.' },
@@ -68,6 +76,12 @@ export default {
     recovery: { type: Object, required: true }
   },
   computed: {
+    queuedLabel () {
+      return queuedExecutionLabel(this.recovery.queuedExecutionNotResumed)
+    },
+    queuedResumedLabel () {
+      return queuedExecutionLabel(this.recovery.queuedExecutionResumed)
+    },
     statusColor () {
       return (STATUS[this.recovery.status] || { color: 'secondary' }).color
     },
